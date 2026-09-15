@@ -5,7 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Hyperact</title>
   <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="command-preview.css">
   <script src="app.js" defer></script>
+  <script src="command-preview.js" defer></script>
 </head>
 <body>
   <main class="palette">
@@ -63,11 +65,34 @@
           </div>
         </div>
 
-        <div class="command-code-head">
-          <span>Node.js</span>
-          <span><code>input</code> → return value</span>
+        <div id="command-workbench" class="command-workbench">
+          <div id="command-code-pane" class="command-code-pane">
+            <div class="command-code-head">
+              <span>Node.js</span>
+              <span><code>input</code> → return value</span>
+            </div>
+            <textarea id="command-code" class="command-code" spellcheck="false" placeholder="return input;"></textarea>
+          </div>
+
+          <div id="command-resizer" class="command-resizer" title="Drag to resize · double-click to reset"></div>
+
+          <div class="command-preview">
+            <div class="command-preview-head">
+              <span>Live test</span>
+              <button id="command-preview-run" class="command-preview-run" type="button">Run</button>
+            </div>
+            <div class="command-preview-grid">
+              <label class="command-preview-field">
+                <span>Example input</span>
+                <textarea id="command-example-input" class="command-example-input" spellcheck="false">hello</textarea>
+              </label>
+              <div class="command-preview-field">
+                <span>Output</span>
+                <pre id="command-example-output" class="command-example-output empty">Run to preview</pre>
+              </div>
+            </div>
+          </div>
         </div>
-        <textarea id="command-code" class="command-code" spellcheck="false" placeholder="return input;"></textarea>
 
         <div class="command-bottom">
           <button id="command-delete" class="editor-button danger" type="button">Delete</button>
