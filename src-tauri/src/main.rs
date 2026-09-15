@@ -148,6 +148,12 @@ mod windows_key {
 
                 if chord {
                     inject_win(true);
+                } else {
+                    // Windows can still arm the Start menu from the physical Win
+                    // gesture even when its messages are swallowed. A harmless
+                    // Ctrl tap masks that gesture, matching the technique used by
+                    // mature Windows hotkey tools.
+                    mask_start_menu();
                 }
             }
 
@@ -182,6 +188,11 @@ mod windows_key {
 
     fn modifier_held(key: i32) -> bool {
         unsafe { GetAsyncKeyState(key) as u16 & 0x8000 != 0 }
+    }
+
+    unsafe fn mask_start_menu() {
+        keybd_event(VK_CONTROL as u8, 0, 0, 0);
+        keybd_event(VK_CONTROL as u8, 0, KEYEVENTF_KEYUP, 0);
     }
 
     unsafe fn inject_win(down: bool) {
