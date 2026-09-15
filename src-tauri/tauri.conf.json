@@ -11,12 +11,17 @@
       {
         "label": "main",
         "title": "Hyperact",
-        "width": 680,
-        "height": 420,
-        "minWidth": 480,
-        "minHeight": 280,
+        "width": 720,
+        "height": 430,
+        "minWidth": 720,
+        "minHeight": 430,
+        "maxWidth": 720,
+        "maxHeight": 430,
         "center": true,
-        "resizable": true,
+        "resizable": false,
+        "decorations": false,
+        "transparent": true,
+        "shadow": true,
         "fullscreen": false
       }
     ],
