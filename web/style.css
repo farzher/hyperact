@@ -150,12 +150,20 @@ body {
   flex: 0 0 38px;
   display: grid;
   place-items: center;
+  overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.045);
   color: #c8bbff;
   font-size: 15px;
   font-weight: 650;
+}
+
+.action-icon img {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+  pointer-events: none;
 }
 
 .action-copy {
