@@ -85,6 +85,7 @@ function nativeItem(item, score = 0) {
 function appItem(app, score) {
   return {
     icon: app.name.trim().charAt(0).toUpperCase() || "A",
+    image: app.icon,
     title: app.name,
     detail: "Application",
     score,
@@ -183,13 +184,18 @@ function setInput(value) {
   render();
 }
 
+async function hideLauncher() {
+  await currentWindow.hide();
+}
+
 async function runNative(command, args) {
+  input.value = "";
+  selected = 0;
+  render();
+
   try {
+    await hideLauncher();
     await invoke(command, args);
-    input.value = "";
-    selected = 0;
-    render();
-    await currentWindow.hide();
   } catch (error) {
     console.error(error);
   }
@@ -226,7 +232,20 @@ function render() {
 
     const icon = document.createElement("span");
     icon.className = "action-icon";
-    icon.textContent = item.icon;
+
+    if (item.image) {
+      const image = document.createElement("img");
+      image.src = item.image;
+      image.alt = "";
+      image.draggable = false;
+      image.addEventListener("error", () => {
+        icon.replaceChildren();
+        icon.textContent = item.icon;
+      });
+      icon.append(image);
+    } else {
+      icon.textContent = item.icon;
+    }
 
     const copy = document.createElement("span");
     copy.className = "action-copy";
@@ -264,7 +283,11 @@ async function loadStartApps() {
       .split(/\r?\n/)
       .map(line => line.split("\x1f"))
       .filter(parts => parts.length >= 2 && parts[0] && parts[1])
-      .map(([name, id]) => ({ name: name.trim(), id: id.trim() }));
+      .map(([name, id, icon]) => ({
+        name: name.trim(),
+        id: id.trim(),
+        icon: icon?.trim() || ""
+      }));
     render();
   } catch (error) {
     console.error(error);
@@ -295,8 +318,9 @@ document.addEventListener("keydown", event => {
     event.preventDefault();
     run();
   } else if (event.key === "Escape") {
+    event.preventDefault();
     if (input.value) setInput("");
-    else currentWindow.hide();
+    else hideLauncher().catch(console.error);
   }
 });
 
