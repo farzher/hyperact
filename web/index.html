@@ -21,6 +21,38 @@
 
     <div id="actions" class="actions" role="listbox"></div>
 
+    <section id="command-editor" class="command-editor" hidden>
+      <div class="command-editor-head">
+        <select id="command-select" aria-label="Command to edit"></select>
+        <button id="command-new" class="editor-button" type="button">New</button>
+      </div>
+
+      <label class="editor-field">
+        <span>Name</span>
+        <input id="command-name" type="text" autocomplete="off" spellcheck="false" placeholder="Hash">
+      </label>
+
+      <label class="editor-field">
+        <span>Hotkey <small>optional</small></span>
+        <input id="command-hotkey" type="text" autocomplete="off" spellcheck="false" placeholder="Ctrl+Shift+H">
+      </label>
+
+      <label class="editor-field editor-code-field">
+        <span>JavaScript</span>
+        <textarea id="command-code" spellcheck="false" placeholder="return input;"></textarea>
+      </label>
+
+      <div class="editor-help"><code>input</code> is your text. Return the replacement. Browser JavaScript and <code>await</code> work.</div>
+      <div id="command-status" class="command-status"></div>
+
+      <div class="command-editor-actions">
+        <button id="command-delete" class="editor-button danger" type="button">Delete</button>
+        <span></span>
+        <button id="command-cancel" class="editor-button" type="button">Cancel</button>
+        <button id="command-save" class="editor-button primary" type="button">Save</button>
+      </div>
+    </section>
+
     <footer id="footer" class="footer">
       <span><kbd>↑</kbd><kbd>↓</kbd> navigate</span>
       <span><kbd>↵</kbd> run</span>
