@@ -1,13 +1,32 @@
 const input = document.querySelector("#input");
 const actions = document.querySelector("#actions");
 const kind = document.querySelector("#kind");
+const footer = document.querySelector("#footer");
 const dragHandle = document.querySelector("#drag-handle");
+const commandEditor = document.querySelector("#command-editor");
+const commandSelect = document.querySelector("#command-select");
+const commandNew = document.querySelector("#command-new");
+const commandName = document.querySelector("#command-name");
+const commandHotkey = document.querySelector("#command-hotkey");
+const commandCode = document.querySelector("#command-code");
+const commandStatus = document.querySelector("#command-status");
+const commandDelete = document.querySelector("#command-delete");
+const commandCancel = document.querySelector("#command-cancel");
+const commandSave = document.querySelector("#command-save");
 const { invoke } = window.__TAURI__.core;
 const currentWindow = window.__TAURI__.window.getCurrentWindow();
+const globalShortcut = window.__TAURI__.globalShortcut;
+const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
+const defaultPlaceholder = "Search apps and actions…";
+const commandStorageKey = "hyperact.commands";
 
 let items = [];
 let selected = 0;
 let startApps = [];
+let commands = loadCommands();
+let activeCommand = null;
+let commandError = "";
+let registeredCommandHotkeys = [];
 
 const systemActions = [
   { icon: "▣", title: "File Explorer", detail: "Windows", id: "explorer", keywords: "files folders", default: true },
@@ -36,6 +55,21 @@ const systemActions = [
   { icon: "↻", title: "Restart", detail: "Restart this PC", id: "restart", keywords: "reboot", exact: true },
   { icon: "○", title: "Shut down", detail: "Shut down this PC", id: "shutdown", keywords: "shutdown power off", exact: true }
 ];
+
+function loadCommands() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(commandStorageKey) || "[]");
+    return Array.isArray(saved)
+      ? saved.filter(command => command && command.id && command.name && typeof command.code === "string")
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function persistCommands() {
+  localStorage.setItem(commandStorageKey, JSON.stringify(commands));
+}
 
 function windowsPath(value) {
   return /^[a-z]:[\\/]/i.test(value.trim());
@@ -93,11 +127,44 @@ function appItem(app, score) {
   };
 }
 
+function commandItem(command, score = 8) {
+  return {
+    icon: "ƒ",
+    title: command.name,
+    detail: command.hotkey ? `Command · ${command.hotkey}` : "Command",
+    score,
+    run: () => runCommand(command, input.value)
+  };
+}
+
+function manageCommandsItem(score = 9) {
+  return {
+    icon: "+",
+    title: "Commands",
+    detail: commands.length ? `${commands.length} custom command${commands.length === 1 ? "" : "s"}` : "Add a custom command",
+    score,
+    run: () => openCommandEditor()
+  };
+}
+
 function buildActions(value) {
   const query = value.trim();
 
+  if (activeCommand) {
+    return [{
+      icon: "ƒ",
+      title: `Run ${activeCommand.name}`,
+      detail: commandError || "JavaScript command",
+      score: 0,
+      run: () => runCommand(activeCommand, value)
+    }];
+  }
+
   if (!query) {
-    return systemActions.filter(item => item.default).map(nativeItem);
+    return [
+      ...systemActions.filter(item => item.default).map(nativeItem),
+      manageCommandsItem()
+    ];
   }
 
   const result = [];
@@ -140,6 +207,14 @@ function buildActions(value) {
     if (Number.isFinite(score)) matches.push(appItem(app, score + 0.1));
   }
 
+  for (const command of commands) {
+    const nameScore = matchScore(command.name, query);
+    matches.push(commandItem(command, Number.isFinite(nameScore) ? nameScore + 0.05 : 8));
+  }
+
+  const commandManagerScore = matchScore("commands add command edit command custom automation", query);
+  if (Number.isFinite(commandManagerScore)) matches.push(manageCommandsItem(commandManagerScore));
+
   matches.sort((a, b) => a.score - b.score || a.title.localeCompare(b.title));
   result.push(...matches.slice(0, 10));
 
@@ -171,6 +246,7 @@ function buildActions(value) {
 }
 
 function detectKind(value) {
+  if (activeCommand) return activeCommand.name;
   if (!value.trim()) return "";
   if (windowsPath(value)) return "Windows path";
   if (/^https?:\/\//i.test(value.trim())) return "URL";
@@ -181,7 +257,28 @@ function setInput(value) {
   input.value = value;
   input.setSelectionRange(value.length, value.length);
   selected = 0;
+  commandError = "";
   render();
+}
+
+async function runCommand(command, value) {
+  commandError = "";
+
+  try {
+    const execute = new AsyncFunction("input", `"use strict";\n${command.code}`);
+    const output = await execute(value);
+
+    if (output === undefined) {
+      throw new Error("Command must return a value");
+    }
+
+    activeCommand = null;
+    input.placeholder = defaultPlaceholder;
+    setInput(String(output));
+  } catch (error) {
+    commandError = error?.message || String(error);
+    render();
+  }
 }
 
 async function hideLauncher() {
@@ -206,6 +303,8 @@ function run(index = selected) {
 }
 
 function render() {
+  if (!commandEditor.hidden) return;
+
   items = buildActions(input.value);
   selected = Math.min(selected, Math.max(0, items.length - 1));
 
@@ -294,8 +393,175 @@ async function loadStartApps() {
   }
 }
 
+function normalizeHotkey(value) {
+  return value.trim().replace(/\s+/g, "");
+}
+
+async function refreshCommandHotkeys() {
+  const failures = new Map();
+
+  if (!globalShortcut) return failures;
+
+  for (const hotkey of registeredCommandHotkeys) {
+    try {
+      await globalShortcut.unregister(hotkey);
+    } catch {}
+  }
+
+  registeredCommandHotkeys = [];
+  const seen = new Set(["alt+space"]);
+
+  for (const command of commands) {
+    const hotkey = normalizeHotkey(command.hotkey || "");
+    if (!hotkey) continue;
+
+    const key = hotkey.toLowerCase();
+    if (seen.has(key)) {
+      failures.set(command.id, "Hotkey is already in use by Hyperact");
+      continue;
+    }
+    seen.add(key);
+
+    try {
+      await globalShortcut.register(hotkey, event => {
+        if (event.state === "Pressed") openCommandMode(command).catch(console.error);
+      });
+      registeredCommandHotkeys.push(hotkey);
+    } catch (error) {
+      failures.set(command.id, error?.message || String(error));
+    }
+  }
+
+  return failures;
+}
+
+async function openCommandMode(command) {
+  if (!commandEditor.hidden) closeCommandEditor();
+
+  activeCommand = command;
+  commandError = "";
+  input.disabled = false;
+  input.value = "";
+  input.placeholder = `${command.name} input…`;
+  selected = 0;
+  render();
+
+  await currentWindow.show();
+  await currentWindow.setFocus();
+  input.focus();
+}
+
+function populateCommandSelect(selectedId = "") {
+  commandSelect.replaceChildren();
+
+  const fresh = document.createElement("option");
+  fresh.value = "";
+  fresh.textContent = "New command";
+  commandSelect.append(fresh);
+
+  for (const command of commands) {
+    const option = document.createElement("option");
+    option.value = command.id;
+    option.textContent = command.name;
+    commandSelect.append(option);
+  }
+
+  commandSelect.value = selectedId;
+}
+
+function loadEditorCommand(id) {
+  const command = commands.find(item => item.id === id);
+  commandSelect.value = command?.id || "";
+  commandName.value = command?.name || "";
+  commandHotkey.value = command?.hotkey || "";
+  commandCode.value = command?.code || "return input;";
+  commandDelete.hidden = !command;
+  commandStatus.textContent = "";
+  commandName.focus();
+  commandName.select();
+}
+
+function openCommandEditor(id = "") {
+  activeCommand = null;
+  commandError = "";
+  input.value = "";
+  input.placeholder = "Commands";
+  input.disabled = true;
+  kind.textContent = "Commands";
+  kind.classList.add("visible");
+  actions.hidden = true;
+  footer.hidden = true;
+  commandEditor.hidden = false;
+  populateCommandSelect(id);
+  loadEditorCommand(id);
+}
+
+function closeCommandEditor() {
+  commandEditor.hidden = true;
+  actions.hidden = false;
+  footer.hidden = false;
+  input.disabled = false;
+  input.value = "";
+  input.placeholder = defaultPlaceholder;
+  selected = 0;
+  render();
+  input.focus();
+}
+
+async function saveEditorCommand() {
+  const name = commandName.value.trim();
+  const code = commandCode.value.trim();
+  const hotkey = normalizeHotkey(commandHotkey.value);
+
+  if (!name) {
+    commandStatus.textContent = "Give the command a name.";
+    commandName.focus();
+    return;
+  }
+
+  if (!code) {
+    commandStatus.textContent = "Add JavaScript for the command.";
+    commandCode.focus();
+    return;
+  }
+
+  const existing = commands.find(command => command.id === commandSelect.value);
+  const id = existing?.id || crypto.randomUUID();
+  const next = { id, name, hotkey, code };
+
+  if (existing) {
+    commands = commands.map(command => command.id === id ? next : command);
+  } else {
+    commands.push(next);
+  }
+
+  persistCommands();
+  populateCommandSelect(id);
+  loadEditorCommand(id);
+
+  const failures = await refreshCommandHotkeys();
+  if (failures.has(id)) {
+    commandStatus.textContent = `Saved, but hotkey failed: ${failures.get(id)}`;
+    return;
+  }
+
+  closeCommandEditor();
+}
+
+async function deleteEditorCommand() {
+  const id = commandSelect.value;
+  if (!id) return;
+
+  commands = commands.filter(command => command.id !== id);
+  persistCommands();
+  await refreshCommandHotkeys();
+  populateCommandSelect();
+  loadEditorCommand("");
+}
+
 input.addEventListener("input", () => {
   selected = 0;
+  commandError = "";
   render();
 });
 
@@ -303,9 +569,31 @@ dragHandle.addEventListener("mousedown", event => {
   if (event.button === 0) currentWindow.startDragging();
 });
 
-window.addEventListener("focus", () => input.focus());
+commandSelect.addEventListener("change", () => loadEditorCommand(commandSelect.value));
+commandNew.addEventListener("click", () => {
+  populateCommandSelect();
+  loadEditorCommand("");
+});
+commandCancel.addEventListener("click", closeCommandEditor);
+commandSave.addEventListener("click", () => saveEditorCommand().catch(console.error));
+commandDelete.addEventListener("click", () => deleteEditorCommand().catch(console.error));
+
+window.addEventListener("focus", () => {
+  if (commandEditor.hidden) input.focus();
+});
 
 document.addEventListener("keydown", event => {
+  if (!commandEditor.hidden) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeCommandEditor();
+    } else if (event.key === "Enter" && event.ctrlKey) {
+      event.preventDefault();
+      saveEditorCommand().catch(console.error);
+    }
+    return;
+  }
+
   if (event.key === "ArrowDown" && items.length) {
     event.preventDefault();
     selected = (selected + 1) % items.length;
@@ -319,11 +607,21 @@ document.addEventListener("keydown", event => {
     run();
   } else if (event.key === "Escape") {
     event.preventDefault();
-    if (input.value) setInput("");
-    else hideLauncher().catch(console.error);
+    if (activeCommand) {
+      activeCommand = null;
+      commandError = "";
+      input.value = "";
+      input.placeholder = defaultPlaceholder;
+      render();
+    } else if (input.value) {
+      setInput("");
+    } else {
+      hideLauncher().catch(console.error);
+    }
   }
 });
 
 input.focus();
 render();
 loadStartApps();
+refreshCommandHotkeys().catch(console.error);
