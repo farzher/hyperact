@@ -46,6 +46,22 @@
         </select>
       </label>
 
+      <label class="editor-field">
+        <span>If no text</span>
+        <select id="command-missing-input">
+          <option value="prompt">Prompt</option>
+          <option value="nothing">Do nothing</option>
+        </select>
+      </label>
+
+      <label class="editor-field">
+        <span>Insert result</span>
+        <select id="command-output-mode">
+          <option value="type">Type</option>
+          <option value="paste">Paste</option>
+        </select>
+      </label>
+
       <label class="editor-field editor-code-field">
         <span>Node.js</span>
         <textarea id="command-code" spellcheck="false" placeholder="return input;"></textarea>
