@@ -163,6 +163,7 @@
   openPromptMode = async function (command, target, selectAll) {
     promptInputLocked = true;
     input.readOnly = true;
+    await hyperWindow.setFocusable(true);
     await hyperWindow.setAlwaysOnTop(false);
     await baseOpenPromptMode(command, target, selectAll);
     input.readOnly = true;
@@ -171,8 +172,23 @@
 
   const baseOpenDeferredPromptMode = openDeferredPromptMode;
   openDeferredPromptMode = async function (command, target) {
+    await hyperWindow.setFocusable(false);
     await hyperWindow.setAlwaysOnTop(true);
     await baseOpenDeferredPromptMode(command, target);
+  };
+
+  const baseContinueDeferredHotkey = continueDeferredHotkey;
+  continueDeferredHotkey = async function (command, target) {
+    try {
+      return await baseContinueDeferredHotkey(command, target);
+    } finally {
+      try {
+        await hyperWindow.setAlwaysOnTop(false);
+        await hyperWindow.setFocusable(true);
+      } catch (error) {
+        console.error(error);
+      }
+    }
   };
 
   document.addEventListener("keydown", event => {
