@@ -20,7 +20,7 @@ mod windows_key {
         mem::zeroed,
         ptr::null,
         sync::{
-            atomic::{AtomicBool, Ordering},
+            atomic::{AtomicBool, AtomicU32, Ordering},
             mpsc::sync_channel,
             OnceLock,
         },
@@ -35,13 +35,18 @@ mod windows_key {
     const WM_SYSKEYUP: u32 = 0x0105;
     const VK_LWIN: u32 = 0x5B;
     const VK_RWIN: u32 = 0x5C;
-    const VK_MASK: u8 = 0xE8;
+    const VK_SHIFT: u32 = 0x10;
+    const VK_CONTROL: u32 = 0x11;
+    const VK_MENU: u32 = 0x12;
     const LLKHF_INJECTED: u32 = 0x10;
+    const KEYEVENTF_EXTENDEDKEY: u32 = 0x0001;
     const KEYEVENTF_KEYUP: u32 = 0x0002;
 
     static APP: OnceLock<AppHandle> = OnceLock::new();
     static WIN_DOWN: AtomicBool = AtomicBool::new(false);
     static WIN_CHORD: AtomicBool = AtomicBool::new(false);
+    static WIN_FORWARDED: AtomicBool = AtomicBool::new(false);
+    static WIN_KEY: AtomicU32 = AtomicU32::new(VK_LWIN);
     static SHIFT_DOWN: AtomicBool = AtomicBool::new(false);
     static CTRL_DOWN: AtomicBool = AtomicBool::new(false);
     static ALT_DOWN: AtomicBool = AtomicBool::new(false);
@@ -125,6 +130,8 @@ mod windows_key {
         }
 
         let key = &*(l_param as *const KbdLlHookStruct);
+
+        // Our synthesized Win events must continue through the hook chain.
         if key.flags & LLKHF_INJECTED != 0 {
             return CallNextHookEx(0, code, w_param, l_param);
         }
@@ -137,35 +144,59 @@ mod windows_key {
             return CallNextHookEx(0, code, w_param, l_param);
         }
 
-        update_modifier_state(key.vk_code, is_down, is_up);
-
         let is_win = key.vk_code == VK_LWIN || key.vk_code == VK_RWIN;
 
         if is_win && is_down {
-            if !WIN_DOWN.swap(true, Ordering::SeqCst) {
-                WIN_CHORD.store(modifier_held(), Ordering::SeqCst);
-
-                // Let Windows receive the real Win key, but insert an inert keypress
-                // so releasing Win is not interpreted as a bare Start-menu tap.
-                mask_start_menu();
+            if WIN_DOWN.swap(true, Ordering::SeqCst) {
+                return 1;
             }
 
-            return CallNextHookEx(0, code, w_param, l_param);
+            WIN_KEY.store(key.vk_code, Ordering::SeqCst);
+
+            // If Shift/Ctrl/Alt was already held before Win, this was never a bare
+            // Win tap. Let Windows receive the real Win press normally.
+            let preexisting_modifier = modifier_held();
+            WIN_CHORD.store(preexisting_modifier, Ordering::SeqCst);
+            WIN_FORWARDED.store(preexisting_modifier, Ordering::SeqCst);
+
+            if preexisting_modifier {
+                return CallNextHookEx(0, code, w_param, l_param);
+            }
+
+            // Hold Win back until we know whether it is a bare tap or a chord.
+            return 1;
         }
 
         if is_win && is_up {
-            if WIN_DOWN.swap(false, Ordering::SeqCst) {
-                let chord = WIN_CHORD.swap(false, Ordering::SeqCst);
-                if !chord {
-                    request_toggle();
-                }
+            if !WIN_DOWN.swap(false, Ordering::SeqCst) {
+                return 1;
             }
 
-            return CallNextHookEx(0, code, w_param, l_param);
+            let chord = WIN_CHORD.swap(false, Ordering::SeqCst);
+            let forwarded = WIN_FORWARDED.swap(false, Ordering::SeqCst);
+
+            if chord {
+                if forwarded {
+                    // A pre-existing modifier made us forward the real Win-down.
+                    return CallNextHookEx(0, code, w_param, l_param);
+                }
+
+                // Windows saw our synthesized Win-down; complete it synthetically.
+                inject_win(false);
+                return 1;
+            }
+
+            // Windows received neither side of this bare Win tap.
+            request_toggle();
+            return 1;
         }
 
-        if is_down && WIN_DOWN.load(Ordering::SeqCst) {
-            WIN_CHORD.store(true, Ordering::SeqCst);
+        update_modifier_state(key.vk_code, is_down, is_up);
+
+        if is_down && WIN_DOWN.load(Ordering::SeqCst) && !WIN_CHORD.swap(true, Ordering::SeqCst) {
+            // A second key joined a previously withheld Win press. Make Win appear
+            // down immediately before the real second key continues to Windows.
+            inject_win(true);
         }
 
         CallNextHookEx(0, code, w_param, l_param)
@@ -174,9 +205,9 @@ mod windows_key {
     fn update_modifier_state(key: u32, down: bool, up: bool) {
         let state = down && !up;
         match key {
-            0x10 | 0xA0 | 0xA1 => SHIFT_DOWN.store(state, Ordering::SeqCst),
-            0x11 | 0xA2 | 0xA3 => CTRL_DOWN.store(state, Ordering::SeqCst),
-            0x12 | 0xA4 | 0xA5 => ALT_DOWN.store(state, Ordering::SeqCst),
+            VK_SHIFT | 0xA0 | 0xA1 => SHIFT_DOWN.store(state, Ordering::SeqCst),
+            VK_CONTROL | 0xA2 | 0xA3 => CTRL_DOWN.store(state, Ordering::SeqCst),
+            VK_MENU | 0xA4 | 0xA5 => ALT_DOWN.store(state, Ordering::SeqCst),
             _ => {}
         }
     }
@@ -187,9 +218,9 @@ mod windows_key {
             || ALT_DOWN.load(Ordering::SeqCst)
     }
 
-    unsafe fn mask_start_menu() {
-        keybd_event(VK_MASK, 0, 0, 0);
-        keybd_event(VK_MASK, 0, KEYEVENTF_KEYUP, 0);
+    unsafe fn inject_win(down: bool) {
+        let flags = KEYEVENTF_EXTENDEDKEY | if down { 0 } else { KEYEVENTF_KEYUP };
+        keybd_event(WIN_KEY.load(Ordering::SeqCst) as u8, 0, flags, 0);
     }
 
     fn request_toggle() {
