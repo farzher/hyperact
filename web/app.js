@@ -8,7 +8,9 @@ const commandSelect = document.querySelector("#command-select");
 const commandNew = document.querySelector("#command-new");
 const commandName = document.querySelector("#command-name");
 const commandHotkey = document.querySelector("#command-hotkey");
+const commandRuntime = document.querySelector("#command-runtime");
 const commandCode = document.querySelector("#command-code");
+const commandHelp = document.querySelector("#command-help");
 const commandStatus = document.querySelector("#command-status");
 const commandDelete = document.querySelector("#command-delete");
 const commandCancel = document.querySelector("#command-cancel");
@@ -61,7 +63,12 @@ function loadCommands() {
   try {
     const saved = JSON.parse(localStorage.getItem(commandStorageKey) || "[]");
     return Array.isArray(saved)
-      ? saved.filter(command => command && command.id && command.name && typeof command.code === "string")
+      ? saved
+        .filter(command => command && command.id && command.name && typeof command.code === "string")
+        .map(command => ({
+          ...command,
+          runtime: command.runtime === "node" ? "node" : "browser"
+        }))
       : [];
   } catch {
     return [];
@@ -141,9 +148,13 @@ function appItem(app, score) {
   };
 }
 
+function commandRuntimeLabel(command) {
+  return command.runtime === "node" ? "Node.js" : "JavaScript";
+}
+
 function commandItem(command, score = 8) {
   return {
-    icon: "ƒ",
+    icon: command.runtime === "node" ? "N" : "ƒ",
     title: command.name,
     detail: command.hotkey || "",
     category: "Command",
@@ -168,9 +179,9 @@ function buildActions(value) {
 
   if (activeCommand) {
     return [{
-      icon: "ƒ",
+      icon: activeCommand.runtime === "node" ? "N" : "ƒ",
       title: `Run ${activeCommand.name}`,
-      detail: commandError || "JavaScript command",
+      detail: commandError || `${commandRuntimeLabel(activeCommand)} command`,
       category: "Command",
       score: 0,
       run: () => runCommand(activeCommand, value)
@@ -287,8 +298,14 @@ async function runCommand(command, value) {
   commandError = "";
 
   try {
-    const execute = new AsyncFunction("input", `"use strict";\n${command.code}`);
-    const output = await execute(value);
+    let output;
+
+    if (command.runtime === "node") {
+      output = await invoke("run_node_command", { code: command.code, input: value });
+    } else {
+      const execute = new AsyncFunction("input", `"use strict";\n${command.code}`);
+      output = await execute(value);
+    }
 
     if (output === undefined) {
       throw new Error("Command must return a value");
@@ -513,14 +530,24 @@ function populateCommandSelect(selectedId = "") {
   commandSelect.value = selectedId;
 }
 
+function updateCommandHelp() {
+  if (commandRuntime.value === "node") {
+    commandHelp.innerHTML = "<code>input</code> is your text. Return the replacement. Node.js <code>require()</code>, built-ins, and <code>await</code> work.";
+  } else {
+    commandHelp.innerHTML = "<code>input</code> is your text. Return the replacement. Browser JavaScript and <code>await</code> work.";
+  }
+}
+
 function loadEditorCommand(id) {
   const command = commands.find(item => item.id === id);
   commandSelect.value = command?.id || "";
   commandName.value = command?.name || "";
   commandHotkey.value = command?.hotkey || "";
+  commandRuntime.value = command?.runtime === "node" ? "node" : "browser";
   commandCode.value = command?.code || "return input;";
   commandDelete.hidden = !command;
   commandStatus.textContent = "";
+  updateCommandHelp();
   commandName.focus();
   commandName.select();
 }
@@ -556,6 +583,7 @@ async function saveEditorCommand() {
   const name = commandName.value.trim();
   const code = commandCode.value.trim();
   const hotkey = normalizeHotkey(commandHotkey.value);
+  const runtime = commandRuntime.value === "node" ? "node" : "browser";
 
   if (!name) {
     commandStatus.textContent = "Give the command a name.";
@@ -571,7 +599,7 @@ async function saveEditorCommand() {
 
   const existing = commands.find(command => command.id === commandSelect.value);
   const id = existing?.id || crypto.randomUUID();
-  const next = { id, name, hotkey, code };
+  const next = { id, name, hotkey, runtime, code };
 
   if (existing) {
     commands = commands.map(command => command.id === id ? next : command);
@@ -612,7 +640,7 @@ input.addEventListener("input", () => {
 actions.addEventListener("scroll", () => {
   actions.classList.add("scrolling");
   clearTimeout(scrollTimer);
-  scrollTimer = setTimeout(() => actions.classList.remove("scrolling"), 1000);
+  scrollTimer = setTimeout(() => actions.classList.remove("scrolling"), 850);
 });
 
 dragHandle.addEventListener("mousedown", event => {
@@ -620,6 +648,7 @@ dragHandle.addEventListener("mousedown", event => {
 });
 
 commandSelect.addEventListener("change", () => loadEditorCommand(commandSelect.value));
+commandRuntime.addEventListener("change", updateCommandHelp);
 commandNew.addEventListener("click", () => {
   populateCommandSelect();
   loadEditorCommand("");
