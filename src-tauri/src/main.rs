@@ -618,7 +618,7 @@ mod windows_text {
     }
 
     pub fn wait_for_modifiers_release() {
-        for _ in 0..40 {
+        loop {
             let held = unsafe {
                 key_down(VK_CONTROL as i32)
                     || key_down(VK_SHIFT)
