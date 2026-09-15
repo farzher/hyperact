@@ -27,6 +27,7 @@ let commands = loadCommands();
 let activeCommand = null;
 let commandError = "";
 let registeredCommandHotkeys = [];
+let scrollTimer;
 
 const systemActions = [
   { icon: "▣", title: "File Explorer", detail: "Windows", id: "explorer", keywords: "files folders", default: true },
@@ -108,9 +109,21 @@ function matchScore(text, query) {
   return Infinity;
 }
 
+function nativeCategory(item) {
+  if (item.detail === "Settings") return "Windows Settings";
+  if (item.detail === "Folder") return "Folder";
+  if (item.detail === "File Explorer") return "File Explorer";
+  if (item.id === "control-panel") return "Control Panel";
+  if (["explorer", "terminal", "task-manager"].includes(item.id)) return "Application";
+  if (item.id === "settings") return "Windows Settings";
+  return "Windows";
+}
+
 function nativeItem(item, score = 0) {
   return {
     ...item,
+    detail: "",
+    category: nativeCategory(item),
     score,
     run: () => runNative("run_system_action", { action: item.id })
   };
@@ -121,7 +134,8 @@ function appItem(app, score) {
     icon: app.name.trim().charAt(0).toUpperCase() || "A",
     image: app.icon,
     title: app.name,
-    detail: "Application",
+    detail: "",
+    category: app.type || "Application",
     score,
     run: () => runNative("launch_start_app", { appId: app.id })
   };
@@ -131,7 +145,8 @@ function commandItem(command, score = 8) {
   return {
     icon: "ƒ",
     title: command.name,
-    detail: command.hotkey ? `Command · ${command.hotkey}` : "Command",
+    detail: command.hotkey || "",
+    category: "Command",
     score,
     run: () => runCommand(command, input.value)
   };
@@ -141,7 +156,8 @@ function manageCommandsItem(score = 9) {
   return {
     icon: "+",
     title: "Commands",
-    detail: commands.length ? `${commands.length} custom command${commands.length === 1 ? "" : "s"}` : "Add a custom command",
+    detail: commands.length ? `${commands.length} custom` : "Add a custom command",
+    category: "Command",
     score,
     run: () => openCommandEditor()
   };
@@ -155,6 +171,7 @@ function buildActions(value) {
       icon: "ƒ",
       title: `Run ${activeCommand.name}`,
       detail: commandError || "JavaScript command",
+      category: "Command",
       score: 0,
       run: () => runCommand(activeCommand, value)
     }];
@@ -176,6 +193,7 @@ function buildActions(value) {
         icon: ">_",
         title: "Linux cd",
         detail: `cd ${path}`,
+        category: "Text Action",
         score: -2,
         run: () => setInput(`cd ${path}`)
       },
@@ -183,6 +201,7 @@ function buildActions(value) {
         icon: "/",
         title: "WSL path",
         detail: path,
+        category: "Text Action",
         score: -1,
         run: () => setInput(path)
       }
@@ -216,13 +235,14 @@ function buildActions(value) {
   if (Number.isFinite(commandManagerScore)) matches.push(manageCommandsItem(commandManagerScore));
 
   matches.sort((a, b) => a.score - b.score || a.title.localeCompare(b.title));
-  result.push(...matches.slice(0, 10));
+  result.push(...matches);
 
   result.push(
     {
       icon: "Aa",
       title: "UPPERCASE",
       detail: value.toUpperCase(),
+      category: "Text Action",
       score: 20,
       run: () => setInput(value.toUpperCase())
     },
@@ -230,6 +250,7 @@ function buildActions(value) {
       icon: "aa",
       title: "lowercase",
       detail: value.toLowerCase(),
+      category: "Text Action",
       score: 21,
       run: () => setInput(value.toLowerCase())
     },
@@ -237,6 +258,7 @@ function buildActions(value) {
       icon: "#",
       title: "Slugify",
       detail: slugify(value),
+      category: "Text Action",
       score: 22,
       run: () => setInput(slugify(value))
     }
@@ -302,6 +324,25 @@ function run(index = selected) {
   items[index]?.run();
 }
 
+function selectItem(index) {
+  if (!items.length) return;
+
+  const next = (index + items.length) % items.length;
+  const previousRow = actions.children[selected];
+  if (previousRow) {
+    previousRow.classList.remove("selected");
+    previousRow.setAttribute("aria-selected", "false");
+  }
+
+  selected = next;
+  const row = actions.children[selected];
+  if (row) {
+    row.classList.add("selected");
+    row.setAttribute("aria-selected", "true");
+    row.scrollIntoView({ block: "nearest" });
+  }
+}
+
 function render() {
   if (!commandEditor.hidden) return;
 
@@ -349,24 +390,26 @@ function render() {
     const copy = document.createElement("span");
     copy.className = "action-copy";
 
-    const title = document.createElement("div");
+    const title = document.createElement("span");
     title.className = "action-title";
     title.textContent = item.title;
+    copy.append(title);
 
-    const detail = document.createElement("div");
-    detail.className = "action-detail";
-    detail.textContent = item.detail;
+    if (item.detail) {
+      const detail = document.createElement("span");
+      detail.className = "action-detail";
+      detail.textContent = item.detail;
+      copy.append(detail);
+    }
 
-    const key = document.createElement("span");
-    key.className = "action-key";
-    key.innerHTML = "<kbd>↵</kbd>";
+    const category = document.createElement("span");
+    category.className = "action-category";
+    category.textContent = item.category || "Action";
 
-    copy.append(title, detail);
-    row.append(icon, copy, key);
+    row.append(icon, copy, category);
 
     row.addEventListener("mouseenter", () => {
-      selected = index;
-      render();
+      if (selected !== index) selectItem(index);
     });
     row.addEventListener("click", () => run(index));
     actions.append(row);
@@ -382,10 +425,11 @@ async function loadStartApps() {
       .split(/\r?\n/)
       .map(line => line.split("\x1f"))
       .filter(parts => parts.length >= 2 && parts[0] && parts[1])
-      .map(([name, id, icon]) => ({
+      .map(([name, id, icon, type]) => ({
         name: name.trim(),
         id: id.trim(),
-        icon: icon?.trim() || ""
+        icon: icon?.trim() || "",
+        type: type?.trim() || "Application"
       }));
     render();
   } catch (error) {
@@ -565,6 +609,12 @@ input.addEventListener("input", () => {
   render();
 });
 
+actions.addEventListener("scroll", () => {
+  actions.classList.add("scrolling");
+  clearTimeout(scrollTimer);
+  scrollTimer = setTimeout(() => actions.classList.remove("scrolling"), 1000);
+});
+
 dragHandle.addEventListener("mousedown", event => {
   if (event.button === 0) currentWindow.startDragging();
 });
@@ -596,12 +646,10 @@ document.addEventListener("keydown", event => {
 
   if (event.key === "ArrowDown" && items.length) {
     event.preventDefault();
-    selected = (selected + 1) % items.length;
-    render();
+    selectItem(selected + 1);
   } else if (event.key === "ArrowUp" && items.length) {
     event.preventDefault();
-    selected = (selected - 1 + items.length) % items.length;
-    render();
+    selectItem(selected - 1);
   } else if (event.key === "Enter" && items.length) {
     event.preventDefault();
     run();
