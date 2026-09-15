@@ -266,8 +266,6 @@ fn execute_hotkey_command(
     target: u64,
     focus: u64,
 ) -> Result<Vec<u64>, String> {
-    use std::{thread, time::Duration};
-
     windows_text::focus_window(target)?;
     let original_clipboard = windows_text::read_clipboard_text().ok().flatten();
     let mut captured = windows_text::copy_selection()?;
@@ -279,7 +277,6 @@ fn execute_hotkey_command(
     {
         windows_text::select_all();
         selected_all = true;
-        thread::sleep(Duration::from_millis(10));
         captured = windows_text::copy_selection()?;
     }
 
