@@ -23,58 +23,58 @@
     <div id="scroll-thumb" class="scroll-thumb" aria-hidden="true"></div>
 
     <section id="command-editor" class="command-editor" hidden>
-      <div class="command-editor-head">
-        <select id="command-select" aria-label="Command to edit"></select>
-        <button id="command-new" class="editor-button" type="button">New</button>
-      </div>
+      <aside class="command-sidebar">
+        <div class="command-sidebar-head">
+          <span>Commands</span>
+          <button id="command-new" class="editor-icon-button" type="button" aria-label="New command" title="New command">+</button>
+        </div>
+        <div id="command-list" class="command-list"></div>
+      </aside>
 
-      <label class="editor-field">
-        <span>Name</span>
-        <input id="command-name" type="text" autocomplete="off" spellcheck="false" placeholder="Hash">
-      </label>
+      <div class="command-detail">
+        <div class="command-primary-row">
+          <input id="command-name" class="command-name" type="text" autocomplete="off" spellcheck="false" placeholder="Command name">
+          <input id="command-hotkey" class="command-hotkey" type="text" autocomplete="off" spellcheck="false" placeholder="Hotkey">
+        </div>
 
-      <label class="editor-field">
-        <span>Hotkey <small>optional</small></span>
-        <input id="command-hotkey" type="text" autocomplete="off" spellcheck="false" placeholder="Ctrl+Shift+H">
-      </label>
+        <div class="command-options">
+          <div class="command-option">
+            <span>Input</span>
+            <div id="command-input-mode" class="segmented" data-value="focused">
+              <button type="button" data-value="focused">Focused</button>
+              <button type="button" data-value="selected">Selected</button>
+            </div>
+          </div>
 
-      <label class="editor-field">
-        <span>Hotkey input</span>
-        <select id="command-input-mode">
-          <option value="focused">Focused text</option>
-          <option value="selected">Selected text only</option>
-        </select>
-      </label>
+          <div class="command-option">
+            <span>No text</span>
+            <div id="command-missing-input" class="segmented" data-value="prompt">
+              <button type="button" data-value="prompt">Prompt</button>
+              <button type="button" data-value="nothing">Nothing</button>
+            </div>
+          </div>
 
-      <label class="editor-field">
-        <span>If no text</span>
-        <select id="command-missing-input">
-          <option value="prompt">Prompt</option>
-          <option value="nothing">Do nothing</option>
-        </select>
-      </label>
+          <div class="command-option">
+            <span>Output</span>
+            <div id="command-output-mode" class="segmented" data-value="type">
+              <button type="button" data-value="type">Type</button>
+              <button type="button" data-value="paste">Paste</button>
+            </div>
+          </div>
+        </div>
 
-      <label class="editor-field">
-        <span>Insert result</span>
-        <select id="command-output-mode">
-          <option value="type">Type</option>
-          <option value="paste">Paste</option>
-        </select>
-      </label>
+        <div class="command-code-head">
+          <span>Node.js</span>
+          <span><code>input</code> → return value</span>
+        </div>
+        <textarea id="command-code" class="command-code" spellcheck="false" placeholder="return input;"></textarea>
 
-      <label class="editor-field editor-code-field">
-        <span>Node.js</span>
-        <textarea id="command-code" spellcheck="false" placeholder="return input;"></textarea>
-      </label>
-
-      <div class="editor-help"><code>input</code> is your text. Return the replacement. <code>require()</code>, Node built-ins, and <code>await</code> work.</div>
-      <div id="command-status" class="command-status"></div>
-
-      <div class="command-editor-actions">
-        <button id="command-delete" class="editor-button danger" type="button">Delete</button>
-        <span></span>
-        <button id="command-cancel" class="editor-button" type="button">Cancel</button>
-        <button id="command-save" class="editor-button primary" type="button">Save</button>
+        <div class="command-bottom">
+          <button id="command-delete" class="editor-button danger" type="button">Delete</button>
+          <div id="command-status" class="command-status"></div>
+          <button id="command-cancel" class="editor-button" type="button">Close</button>
+          <button id="command-save" class="editor-button primary" type="button">Save</button>
+        </div>
       </div>
     </section>
 
