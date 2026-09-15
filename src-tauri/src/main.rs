@@ -178,6 +178,82 @@ fn run_system_action(action: String) -> Result<(), String> {
     }
 }
 
+#[tauri::command]
+fn run_node_command(code: String, input: String) -> Result<String, String> {
+    use std::{
+        io::Write,
+        process::{Command, Stdio},
+    };
+
+    const NODE_RUNNER: &str = r#"
+const fs = require('fs');
+const data = fs.readFileSync(0);
+if (data.length < 8) throw new Error('Missing Hyperact command input');
+
+const codeLength = Number(data.readBigUInt64LE(0));
+const code = data.subarray(8, 8 + codeLength).toString('utf8');
+const input = data.subarray(8 + codeLength).toString('utf8');
+const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
+
+console.log = (...args) => process.stderr.write(args.join(' ') + '\n');
+
+(async () => {
+  try {
+    const execute = new AsyncFunction('input', 'require', 'process', 'Buffer', `"use strict";\n${code}`);
+    const output = await execute(input, require, process, Buffer);
+    if (output === undefined) throw new Error('Command must return a value');
+    process.stdout.write(String(output));
+  } catch (error) {
+    process.stderr.write(String(error && error.stack ? error.stack : error));
+    process.exitCode = 1;
+  }
+})();
+"#;
+
+    let mut command = Command::new("node");
+    command
+        .args(["-e", NODE_RUNNER])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+
+    let mut child = command.spawn().map_err(|error| {
+        if error.kind() == std::io::ErrorKind::NotFound {
+            "Node.js is not installed or not available on PATH".to_string()
+        } else {
+            error.to_string()
+        }
+    })?;
+
+    let code_bytes = code.as_bytes();
+    let mut stdin = child.stdin.take().ok_or("Could not open Node.js stdin")?;
+    stdin
+        .write_all(&(code_bytes.len() as u64).to_le_bytes())
+        .and_then(|_| stdin.write_all(code_bytes))
+        .and_then(|_| stdin.write_all(input.as_bytes()))
+        .map_err(|error| error.to_string())?;
+    drop(stdin);
+
+    let output = child.wait_with_output().map_err(|error| error.to_string())?;
+    if !output.status.success() {
+        let error = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(if error.is_empty() {
+            "Node.js command failed".into()
+        } else {
+            error
+        });
+    }
+
+    String::from_utf8(output.stdout).map_err(|error| error.to_string())
+}
+
 #[cfg(target_os = "windows")]
 fn shell_open(target: &str) -> Result<(), String> {
     use std::{ffi::c_void, os::windows::ffi::OsStrExt, ptr};
@@ -259,7 +335,8 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             get_start_apps,
             launch_start_app,
-            run_system_action
+            run_system_action,
+            run_node_command
         ])
         .run(tauri::generate_context!())
         .expect("error while running Hyperact");
