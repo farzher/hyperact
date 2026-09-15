@@ -265,7 +265,7 @@ fn run_hotkey_command(
     {
         use std::{thread, time::Duration};
 
-        windows_text::wait_for_modifiers_release();
+        windows_text::wait_for_non_ctrl_modifiers_release();
         let target = windows_text::foreground_window()?;
         let original_clipboard = windows_text::read_clipboard_text().ok().flatten();
         let mut captured = windows_text::copy_selection()?;
@@ -284,6 +284,7 @@ fn run_hotkey_command(
 
         let Some(input) = captured else {
             if missing_input == "prompt" {
+                windows_text::wait_for_modifiers_release();
                 return Ok(vec![target, u64::from(selected_all)]);
             }
             return Ok(Vec::new());
@@ -493,11 +494,17 @@ mod windows_text {
     }
 
     fn send_ctrl_key(key: u8) {
+        let ctrl_held = unsafe { key_down(VK_CONTROL as i32) };
+
         unsafe {
-            keybd_event(VK_CONTROL, 0, 0, 0);
+            if !ctrl_held {
+                keybd_event(VK_CONTROL, 0, 0, 0);
+            }
             keybd_event(key, 0, 0, 0);
             keybd_event(key, 0, KEYEVENTF_KEYUP, 0);
-            keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYUP, 0);
+            if !ctrl_held {
+                keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYUP, 0);
+            }
         }
     }
 
@@ -598,6 +605,7 @@ mod windows_text {
         original_clipboard: Option<&str>,
     ) -> Result<(), String> {
         focus_window(target)?;
+        wait_for_non_ctrl_modifiers_release();
 
         if select_all_first {
             select_all();
@@ -613,7 +621,24 @@ mod windows_text {
             }
             Ok(())
         } else {
+            wait_for_modifiers_release();
             type_text(value)
+        }
+    }
+
+    pub fn wait_for_non_ctrl_modifiers_release() {
+        loop {
+            let held = unsafe {
+                key_down(VK_SHIFT)
+                    || key_down(VK_MENU)
+                    || key_down(VK_LWIN)
+                    || key_down(VK_RWIN)
+            };
+
+            if !held {
+                return;
+            }
+            thread::sleep(Duration::from_millis(5));
         }
     }
 
