@@ -149,7 +149,7 @@
     new MutationObserver(updateScrollThumb).observe(actionList, { childList: true, subtree: true });
 
     const hyperWindow = window.__TAURI__.window.getCurrentWindow();
-    const noWindowDrag = "input, textarea, button, select, option, a, label, pre, [contenteditable='true'], .command-resizer, .drag-handle";
+    const noWindowDrag = "input, textarea, button, select, option, a, label, pre, [contenteditable='true'], .command-resizer, .drag-handle, .item-actions-popover";
 
     document.addEventListener("mousedown", event => {
       if (event.button !== 0) return;
@@ -159,7 +159,10 @@
     });
 
     hyperWindow.onFocusChanged(({ payload: focused }) => {
-      if (!focused && !window.hyperactKeepVisible) hyperWindow.hide();
+      if (focused) return;
+      window.hyperactKeepVisible = false;
+      window.dispatchEvent(new Event("hyperact-blur"));
+      hyperWindow.hide();
     });
   </script>
 </body>
