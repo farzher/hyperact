@@ -229,43 +229,61 @@ pub fn foreground_window() -> Result<u64, String> {
 
 pub fn capture_focus(target: u64) -> u64 {
     let native_focus = focused_control(target);
-    let detected = thread::spawn(|| {
-        let automation = UIAutomation::new().ok()?;
-        let element = automation.get_focused_element().ok()?;
-        let control_type = element.get_control_type().ok()?;
-        let rect = element.get_bounding_rectangle().ok()?;
 
-        if rect.get_width() <= 1 || rect.get_height() <= 1 {
-            return None;
-        }
-
-        let point = (
-            (rect.get_left() + rect.get_right()) / 2,
-            (rect.get_top() + rect.get_bottom()) / 2,
-        );
-        let editable = matches!(control_type, ControlType::Edit | ControlType::ComboBox);
-        Some((point, editable))
-    })
-    .join()
-    .ok()
-    .flatten();
-
-    let snapshot = match detected {
-        Some((point, editable)) => FocusSnapshot {
-            target,
-            point: Some(point),
-            editable,
-        },
-        None => FocusSnapshot {
+    if let Ok(mut current) = focus_snapshot().lock() {
+        *current = Some(FocusSnapshot {
             target,
             point: None,
             editable: false,
-        },
-    };
-
-    if let Ok(mut current) = focus_snapshot().lock() {
-        *current = Some(snapshot);
+        });
     }
+
+    thread::spawn(move || {
+        let detected = (|| {
+            if unsafe { GetForegroundWindow() } as usize as u64 != target {
+                return None;
+            }
+
+            let automation = UIAutomation::new().ok()?;
+            let element = automation.get_focused_element().ok()?;
+            let control_type = element.get_control_type().ok()?;
+            let rect = element.get_bounding_rectangle().ok()?;
+
+            if rect.get_width() <= 1 || rect.get_height() <= 1 {
+                return None;
+            }
+
+            let point = (
+                (rect.get_left() + rect.get_right()) / 2,
+                (rect.get_top() + rect.get_bottom()) / 2,
+            );
+            let editable = matches!(control_type, ControlType::Edit | ControlType::ComboBox);
+            Some((point, editable))
+        })();
+
+        let snapshot = match detected {
+            Some((point, editable)) => FocusSnapshot {
+                target,
+                point: Some(point),
+                editable,
+            },
+            None => FocusSnapshot {
+                target,
+                point: None,
+                editable: false,
+            },
+        };
+
+        if unsafe { GetForegroundWindow() } as usize as u64 != target {
+            return;
+        }
+
+        if let Ok(mut current) = focus_snapshot().lock() {
+            if current.is_some_and(|snapshot| snapshot.target == target) {
+                *current = Some(snapshot);
+            }
+        }
+    });
 
     native_focus
 }
