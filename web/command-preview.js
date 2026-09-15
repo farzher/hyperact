@@ -168,9 +168,15 @@
     waitForPromptModifiers();
   };
 
+  const baseOpenDeferredPromptMode = openDeferredPromptMode;
+  openDeferredPromptMode = async function (command, target) {
+    await baseOpenDeferredPromptMode(command, target);
+    await hyperWindow.setFocus();
+    input.focus();
+  };
+
   document.addEventListener("keydown", event => {
-    const locked = promptInputLocked || window.hyperactDeferredPromptLocked;
-    if (!locked || promptTarget === null) return;
+    if (!promptInputLocked || promptTarget === null) return;
     if (["Control", "Shift", "Alt", "Meta", "Escape"].includes(event.key)) return;
     event.preventDefault();
     event.stopImmediatePropagation();
