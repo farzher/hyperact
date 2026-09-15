@@ -284,7 +284,6 @@ fn run_hotkey_command(
 
         let Some(input) = captured else {
             if missing_input == "prompt" {
-                windows_text::wait_for_modifiers_release();
                 return Ok(vec![target, u64::from(selected_all)]);
             }
             return Ok(Vec::new());
@@ -326,6 +325,19 @@ fn submit_prompt_result(
 
     #[cfg(not(target_os = "windows"))]
     Err("Focused-text hotkeys are only available on Windows".into())
+}
+
+#[tauri::command]
+fn modifiers_held() -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        windows_text::modifiers_held()
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        false
+    }
 }
 
 #[cfg(target_os = "windows")]
@@ -642,19 +654,18 @@ mod windows_text {
         }
     }
 
-    pub fn wait_for_modifiers_release() {
-        loop {
-            let held = unsafe {
-                key_down(VK_CONTROL as i32)
-                    || key_down(VK_SHIFT)
-                    || key_down(VK_MENU)
-                    || key_down(VK_LWIN)
-                    || key_down(VK_RWIN)
-            };
+    pub fn modifiers_held() -> bool {
+        unsafe {
+            key_down(VK_CONTROL as i32)
+                || key_down(VK_SHIFT)
+                || key_down(VK_MENU)
+                || key_down(VK_LWIN)
+                || key_down(VK_RWIN)
+        }
+    }
 
-            if !held {
-                return;
-            }
+    pub fn wait_for_modifiers_release() {
+        while modifiers_held() {
             thread::sleep(Duration::from_millis(5));
         }
     }
@@ -748,7 +759,8 @@ fn main() {
             run_system_action,
             run_node_command,
             run_hotkey_command,
-            submit_prompt_result
+            submit_prompt_result,
+            modifiers_held
         ])
         .run(tauri::generate_context!())
         .expect("error while running Hyperact");
