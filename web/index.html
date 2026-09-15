@@ -37,20 +37,12 @@
         <input id="command-hotkey" type="text" autocomplete="off" spellcheck="false" placeholder="Ctrl+Shift+H">
       </label>
 
-      <label class="editor-field">
-        <span>Runtime</span>
-        <select id="command-runtime">
-          <option value="browser">JavaScript</option>
-          <option value="node">Node.js</option>
-        </select>
-      </label>
-
       <label class="editor-field editor-code-field">
-        <span>Code</span>
+        <span>Node.js</span>
         <textarea id="command-code" spellcheck="false" placeholder="return input;"></textarea>
       </label>
 
-      <div id="command-help" class="editor-help"><code>input</code> is your text. Return the replacement. Browser JavaScript and <code>await</code> work.</div>
+      <div class="editor-help"><code>input</code> is your text. Return the replacement. <code>require()</code>, Node built-ins, and <code>await</code> work.</div>
       <div id="command-status" class="command-status"></div>
 
       <div class="command-editor-actions">
