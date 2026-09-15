@@ -82,6 +82,11 @@ body {
   opacity: 0.5;
 }
 
+.palette.command-mode #input:disabled {
+  opacity: 1;
+  color: #ededf0;
+}
+
 #input::placeholder {
   color: #77777f;
 }
@@ -102,6 +107,10 @@ body {
 
 .kind.visible {
   display: block;
+}
+
+.palette.command-mode .kind {
+  display: none;
 }
 
 .actions {
@@ -235,128 +244,353 @@ body {
 .command-editor {
   flex: 1;
   min-height: 0;
-  padding: 14px 16px 13px;
-  overflow: hidden auto;
+  display: grid;
+  grid-template-columns: 174px minmax(0, 1fr);
+  overflow: hidden;
 }
 
 .command-editor[hidden] {
   display: none;
 }
 
-.command-editor-head {
+.command-sidebar {
+  min-width: 0;
   display: flex;
-  gap: 8px;
-  margin-bottom: 12px;
+  flex-direction: column;
+  border-right: 1px solid rgba(255, 255, 255, 0.065);
+  background: rgba(255, 255, 255, 0.012);
 }
 
-.command-editor select,
-.command-editor input,
-.command-editor textarea {
-  width: 100%;
-  border: 1px solid rgba(255, 255, 255, 0.09);
-  border-radius: 8px;
-  outline: 0;
-  background: rgba(255, 255, 255, 0.045);
-  color: #eeeeef;
+.command-sidebar-head {
+  height: 43px;
+  flex: 0 0 43px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 10px 0 13px;
+  color: #83838c;
+  font-size: 10.5px;
+  font-weight: 650;
+  letter-spacing: 0.35px;
+  text-transform: uppercase;
+}
+
+.editor-icon-button {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 7px;
+  padding: 0 0 2px;
+  background: transparent;
+  color: #8e8e97;
   font: inherit;
+  font-size: 20px;
+  font-weight: 300;
+  line-height: 1;
+  cursor: default;
 }
 
-.command-editor select {
-  color-scheme: dark;
+.editor-icon-button:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: #d8d8dd;
 }
 
-.command-editor select option {
-  background: #1b1b1f;
-  color: #eeeeef;
+.command-list {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden auto;
+  padding: 0 6px 7px;
+  scrollbar-width: none;
 }
 
-.command-editor select,
-.command-editor input {
-  height: 34px;
-  padding: 0 10px;
+.command-list::-webkit-scrollbar {
+  display: none;
 }
 
-.command-editor-head select {
+.command-list-item {
+  width: 100%;
+  min-width: 0;
+  height: 39px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 8px;
+  padding: 0 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: default;
+}
+
+.command-list-item:hover {
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.command-list-item.selected {
+  background: rgba(151, 126, 255, 0.11);
+  box-shadow: inset 0 0 0 1px rgba(174, 156, 255, 0.07);
+}
+
+.command-list-icon {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
+  background: rgba(151, 126, 255, 0.09);
+  color: #baaaff;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.command-list-copy {
+  min-width: 0;
   flex: 1;
 }
 
-.editor-field {
-  display: block;
-  margin-top: 10px;
+.command-list-name,
+.command-list-hotkey {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.editor-field > span {
-  display: flex;
-  align-items: baseline;
-  gap: 5px;
-  margin-bottom: 5px;
-  color: #aaaab2;
-  font-size: 11px;
-  font-weight: 600;
+.command-list-name {
+  color: #dedee2;
+  font-size: 12px;
+  font-weight: 560;
 }
 
-.editor-field small {
-  color: #66666e;
-  font-size: 10px;
-  font-weight: 500;
+.command-list-hotkey {
+  margin-top: 1px;
+  color: #686871;
+  font-size: 9.5px;
 }
 
-.editor-code-field textarea {
-  height: 100px;
-  resize: none;
-  padding: 9px 10px;
-  font-family: "Cascadia Code", "Cascadia Mono", Consolas, monospace;
-  font-size: 11.5px;
-  line-height: 17px;
-}
-
-.editor-help,
-.command-status {
-  margin-top: 7px;
-  color: #6f6f77;
+.command-list-empty {
+  padding: 11px 8px;
+  color: #5e5e67;
   font-size: 10.5px;
   line-height: 15px;
 }
 
-.editor-help code {
+.command-detail {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 11px 13px 10px;
+  overflow: hidden;
+}
+
+.command-primary-row {
+  height: 36px;
+  flex: 0 0 36px;
+  display: flex;
+  gap: 8px;
+}
+
+.command-name,
+.command-hotkey,
+.command-code {
+  border: 1px solid rgba(255, 255, 255, 0.085);
+  outline: 0;
+  background: rgba(255, 255, 255, 0.035);
+  color: #eeeeef;
+  font: inherit;
+  transition: border-color 120ms ease, background-color 120ms ease;
+}
+
+.command-name:focus,
+.command-hotkey:focus,
+.command-code:focus {
+  border-color: rgba(174, 156, 255, 0.34);
+  background: rgba(255, 255, 255, 0.048);
+}
+
+.command-name,
+.command-hotkey {
+  height: 36px;
+  border-radius: 8px;
+  padding: 0 10px;
+}
+
+.command-name {
+  min-width: 0;
+  flex: 1;
+  font-size: 14px;
+  font-weight: 580;
+}
+
+.command-hotkey {
+  width: 132px;
+  flex: 0 0 132px;
+  color: #b8b8c0;
+  font-size: 11px;
+  text-align: center;
+}
+
+.command-name::placeholder,
+.command-hotkey::placeholder,
+.command-code::placeholder {
+  color: #606069;
+}
+
+.command-options {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.command-option > span {
+  display: block;
+  margin: 0 0 4px 2px;
+  color: #71717a;
+  font-size: 9.5px;
+  font-weight: 620;
+  letter-spacing: 0.15px;
+}
+
+.segmented {
+  height: 30px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid rgba(255, 255, 255, 0.065);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.segmented button {
+  min-width: 0;
+  border: 0;
+  border-radius: 5px;
+  padding: 0 4px;
+  background: transparent;
+  color: #707078;
+  font: inherit;
+  font-size: 10px;
+  font-weight: 540;
+  cursor: default;
+}
+
+.segmented button:hover {
+  color: #aaaab2;
+}
+
+.segmented button.selected {
+  background: rgba(255, 255, 255, 0.075);
+  color: #dddddf;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.14);
+}
+
+.command-code-head {
+  flex: 0 0 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 1px;
+  padding: 0 2px;
+  color: #777780;
+  font-size: 9.5px;
+  font-weight: 600;
+}
+
+.command-code-head span:last-child {
+  color: #5f5f68;
+  font-weight: 500;
+}
+
+.command-code-head code {
   color: #9b8fe0;
+  font-family: "Cascadia Code", "Cascadia Mono", Consolas, monospace;
+}
+
+.command-code {
+  width: 100%;
+  flex: 1 1 auto;
+  min-height: 90px;
+  resize: none;
+  border-radius: 9px;
+  padding: 9px 10px;
+  font-family: "Cascadia Code", "Cascadia Mono", Consolas, monospace;
+  font-size: 11px;
+  line-height: 16px;
+  user-select: text;
+}
+
+.command-bottom {
+  height: 32px;
+  flex: 0 0 32px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 7px;
 }
 
 .command-status {
-  min-height: 15px;
+  min-width: 0;
+  overflow: hidden;
+  padding-left: 2px;
+  color: #777780;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.command-status.error {
   color: #d8a8a8;
 }
 
-.command-editor-actions {
-  display: grid;
-  grid-template-columns: auto 1fr auto auto;
-  gap: 8px;
-  margin-top: 10px;
+.command-status.success {
+  color: #9fc7a9;
 }
 
 .editor-button {
-  height: 32px;
-  border: 1px solid rgba(255, 255, 255, 0.09);
-  border-radius: 8px;
-  padding: 0 11px;
-  background: rgba(255, 255, 255, 0.045);
-  color: #b9b9c0;
+  height: 30px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 7px;
+  padding: 0 10px;
+  background: rgba(255, 255, 255, 0.035);
+  color: #9a9aa2;
   font: inherit;
-  font-size: 11px;
+  font-size: 10.5px;
+  font-weight: 540;
   cursor: default;
 }
 
 .editor-button:hover {
-  background: rgba(255, 255, 255, 0.075);
+  background: rgba(255, 255, 255, 0.065);
+  color: #c8c8ce;
 }
 
 .editor-button.primary {
+  border-color: rgba(159, 137, 255, 0.18);
   background: rgba(151, 126, 255, 0.14);
   color: #d8d0ff;
 }
 
+.editor-button.primary:hover {
+  background: rgba(151, 126, 255, 0.21);
+}
+
 .editor-button.danger {
-  color: #bc8585;
+  border-color: transparent;
+  background: transparent;
+  color: #8c6868;
+}
+
+.editor-button.danger:hover {
+  background: rgba(180, 93, 93, 0.08);
+  color: #c68e8e;
 }
 
 .footer {
