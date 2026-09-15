@@ -121,8 +121,9 @@
     new ResizeObserver(updateScrollThumb).observe(actionList);
     new MutationObserver(updateScrollThumb).observe(actionList, { childList: true, subtree: true });
 
-    window.addEventListener("blur", () => {
-      window.__TAURI__.window.getCurrentWindow().hide();
+    const hyperWindow = window.__TAURI__.window.getCurrentWindow();
+    hyperWindow.onFocusChanged(({ payload: focused }) => {
+      if (!focused) hyperWindow.hide();
     });
   </script>
 </body>
