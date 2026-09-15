@@ -26,7 +26,39 @@ fn get_start_apps() -> Result<String, String> {
 [Console]::OutputEncoding = [Text.UTF8Encoding]::new()
 Add-Type -AssemblyName System.Drawing
 
-$icons = @{}
+function Get-IconData([string]$source) {
+  if ([string]::IsNullOrWhiteSpace($source)) { return '' }
+
+  $path = [Environment]::ExpandEnvironmentVariables($source.Trim())
+  if ($path -match '^(.*),-?\d+$') { $path = $matches[1] }
+  $path = $path.Trim('"')
+  if (-not (Test-Path -LiteralPath $path)) { return '' }
+
+  $icon = $null
+  $bitmap = $null
+  $stream = $null
+  try {
+    if ([IO.Path]::GetExtension($path) -ieq '.ico') {
+      $icon = New-Object System.Drawing.Icon($path)
+    } else {
+      $icon = [System.Drawing.Icon]::ExtractAssociatedIcon($path)
+    }
+
+    if (-not $icon) { return '' }
+    $bitmap = $icon.ToBitmap()
+    $stream = New-Object IO.MemoryStream
+    $bitmap.Save($stream, [System.Drawing.Imaging.ImageFormat]::Png)
+    return 'data:image/png;base64,' + [Convert]::ToBase64String($stream.ToArray())
+  }
+  catch { return '' }
+  finally {
+    if ($stream) { $stream.Dispose() }
+    if ($bitmap) { $bitmap.Dispose() }
+    if ($icon) { $icon.Dispose() }
+  }
+}
+
+$meta = @{}
 $wsh = New-Object -ComObject WScript.Shell
 $roots = @(
   (Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs'),
@@ -38,46 +70,46 @@ foreach ($root in $roots) {
 
   Get-ChildItem -LiteralPath $root -Recurse -Filter *.lnk -ErrorAction SilentlyContinue | ForEach-Object {
     $key = $_.BaseName.Trim().ToLowerInvariant()
-    if ($icons.ContainsKey($key)) { return }
 
     try {
       $shortcut = $wsh.CreateShortcut($_.FullName)
-      $path = $null
+      $target = [Environment]::ExpandEnvironmentVariables(($shortcut.TargetPath + '').Trim('"'))
+      $arguments = $shortcut.Arguments + ''
+      $type = 'Application'
 
-      if ($shortcut.IconLocation) {
-        $candidate = [Environment]::ExpandEnvironmentVariables($shortcut.IconLocation.Trim())
-        if ($candidate -match '^(.*),-?\d+$') { $candidate = $matches[1] }
-        $candidate = $candidate.Trim('"')
-        if (Test-Path -LiteralPath $candidate) { $path = $candidate }
+      if ($target -match '(?i)\\steam\.exe$' -or
+          $arguments -match '(?i)(?:^|\s)-applaunch\s+\d+' -or
+          $target -match '(?i)EpicGamesLauncher\.exe$') {
+        $type = 'Game'
       }
 
-      if (-not $path -and $shortcut.TargetPath) {
-        $candidate = [Environment]::ExpandEnvironmentVariables($shortcut.TargetPath.Trim('"'))
-        if (Test-Path -LiteralPath $candidate) { $path = $candidate }
+      $iconSource = $shortcut.IconLocation + ''
+      if ([string]::IsNullOrWhiteSpace($iconSource)) { $iconSource = $target }
+      $icon = Get-IconData $iconSource
+      $existing = $meta[$key]
+
+      if (-not $existing -or $type -eq 'Game' -or (-not $existing.Icon -and $icon)) {
+        $meta[$key] = [PSCustomObject]@{ Icon = $icon; Type = $type }
       }
+    }
+    catch {}
+  }
 
-      if (-not $path) { return }
+  Get-ChildItem -LiteralPath $root -Recurse -Filter *.url -ErrorAction SilentlyContinue | ForEach-Object {
+    $key = $_.BaseName.Trim().ToLowerInvariant()
 
-      $icon = $null
-      $bitmap = $null
-      $stream = $null
-      try {
-        if ([IO.Path]::GetExtension($path) -ieq '.ico') {
-          $icon = New-Object System.Drawing.Icon($path)
-        } else {
-          $icon = [System.Drawing.Icon]::ExtractAssociatedIcon($path)
-        }
+    try {
+      $lines = Get-Content -LiteralPath $_.FullName -ErrorAction Stop
+      $urlLine = $lines | Where-Object { $_ -like 'URL=*' } | Select-Object -First 1
+      $iconLine = $lines | Where-Object { $_ -like 'IconFile=*' } | Select-Object -First 1
+      $url = (($urlLine + '') -replace '^URL=', '').Trim()
+      $iconSource = (($iconLine + '') -replace '^IconFile=', '').Trim()
+      $type = if ($url -match '(?i)^(steam|com\.epicgames\.launcher|epicgames|xbox):') { 'Game' } else { 'Application' }
+      $icon = Get-IconData $iconSource
+      $existing = $meta[$key]
 
-        if (-not $icon) { return }
-        $bitmap = $icon.ToBitmap()
-        $stream = New-Object IO.MemoryStream
-        $bitmap.Save($stream, [System.Drawing.Imaging.ImageFormat]::Png)
-        $icons[$key] = 'data:image/png;base64,' + [Convert]::ToBase64String($stream.ToArray())
-      }
-      finally {
-        if ($stream) { $stream.Dispose() }
-        if ($bitmap) { $bitmap.Dispose() }
-        if ($icon) { $icon.Dispose() }
+      if (-not $existing -or $type -eq 'Game' -or (-not $existing.Icon -and $icon)) {
+        $meta[$key] = [PSCustomObject]@{ Icon = $icon; Type = $type }
       }
     }
     catch {}
@@ -86,8 +118,10 @@ foreach ($root in $roots) {
 
 Get-StartApps | Sort-Object Name | ForEach-Object {
   $key = $_.Name.Trim().ToLowerInvariant()
-  $icon = if ($icons.ContainsKey($key)) { $icons[$key] } else { '' }
-  [Console]::WriteLine(('{0}{1}{2}{1}{3}' -f $_.Name, [char]31, $_.AppID, $icon))
+  $entry = $meta[$key]
+  $icon = if ($entry) { $entry.Icon } else { '' }
+  $type = if ($entry) { $entry.Type } else { 'Application' }
+  [Console]::WriteLine(('{0}{1}{2}{1}{3}{1}{4}' -f $_.Name, [char]31, $_.AppID, $icon, $type))
 }
 "#;
         let output = Command::new("powershell.exe")
