@@ -17,6 +17,7 @@
   let runTimer;
   let runVersion = 0;
   let dragging = false;
+  let promptInputLocked = false;
 
   function showOutput(value, state = "") {
     exampleOutput.textContent = value;
@@ -112,6 +113,45 @@
       console.error(error);
     }
   }
+
+  function unlockPromptInput() {
+    promptInputLocked = false;
+    input.readOnly = false;
+    if (promptTarget !== null) input.focus();
+  }
+
+  async function waitForPromptModifiers() {
+    while (promptInputLocked && promptTarget !== null) {
+      try {
+        if (!await invoke("modifiers_held")) {
+          unlockPromptInput();
+          return;
+        }
+      } catch {
+        unlockPromptInput();
+        return;
+      }
+      await new Promise(resolve => setTimeout(resolve, 8));
+    }
+
+    if (promptInputLocked) unlockPromptInput();
+  }
+
+  const baseOpenPromptMode = openPromptMode;
+  openPromptMode = async function (command, target, selectAll) {
+    promptInputLocked = true;
+    input.readOnly = true;
+    await baseOpenPromptMode(command, target, selectAll);
+    input.readOnly = true;
+    waitForPromptModifiers();
+  };
+
+  document.addEventListener("keydown", event => {
+    if (!promptInputLocked || promptTarget === null) return;
+    if (["Control", "Shift", "Alt", "Meta", "Escape"].includes(event.key)) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  }, true);
 
   const pressedHotkeys = new Set();
 
