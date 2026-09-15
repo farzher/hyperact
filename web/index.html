@@ -147,6 +147,15 @@
     new MutationObserver(updateScrollThumb).observe(actionList, { childList: true, subtree: true });
 
     const hyperWindow = window.__TAURI__.window.getCurrentWindow();
+    const noWindowDrag = "input, textarea, button, select, option, a, label, pre, [contenteditable='true'], .command-resizer, .drag-handle";
+
+    document.addEventListener("mousedown", event => {
+      if (event.button !== 0) return;
+      const target = event.target instanceof Element ? event.target : null;
+      if (!target || target.closest(noWindowDrag)) return;
+      hyperWindow.startDragging().catch(console.error);
+    });
+
     hyperWindow.onFocusChanged(({ payload: focused }) => {
       if (!focused) hyperWindow.hide();
     });
