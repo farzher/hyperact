@@ -536,6 +536,13 @@ function normalizeHotkey(value) {
   return value.trim().replace(/\s+/g, "");
 }
 
+function hotkeyKey(event) {
+  if (["Control", "Shift", "Alt", "Meta"].includes(event.key)) return "";
+  if (event.key === " ") return "Space";
+  if (event.key.length === 1) return event.key.toUpperCase();
+  return event.key;
+}
+
 async function refreshCommandHotkeys() {
   const failures = new Map();
   if (!globalShortcut) return failures;
@@ -762,8 +769,31 @@ commandNew.addEventListener("click", () => loadEditorCommand(""));
 commandCancel.addEventListener("click", closeCommandEditor);
 commandSave.addEventListener("click", () => saveEditorCommand().catch(console.error));
 commandDelete.addEventListener("click", () => deleteEditorCommand().catch(console.error));
-commandHotkey.addEventListener("blur", () => {
-  commandHotkey.value = normalizeHotkey(commandHotkey.value);
+commandHotkey.addEventListener("keydown", event => {
+  event.preventDefault();
+  event.stopPropagation();
+
+  if (event.key === "Backspace" || event.key === "Delete") {
+    commandHotkey.value = "";
+    return;
+  }
+
+  if (event.key === "Escape") {
+    commandHotkey.blur();
+    return;
+  }
+
+  const key = hotkeyKey(event);
+  if (!key) return;
+
+  const parts = [];
+  if (event.ctrlKey) parts.push("Ctrl");
+  if (event.altKey) parts.push("Alt");
+  if (event.shiftKey) parts.push("Shift");
+  if (event.metaKey) parts.push("Super");
+  parts.push(key);
+  commandHotkey.value = parts.join("+");
+  commandHotkey.blur();
 });
 
 window.addEventListener("focus", () => {
