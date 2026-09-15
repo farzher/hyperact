@@ -1,3 +1,121 @@
+.palette.command-mode .query {
+  height: 52px;
+  flex-basis: 52px;
+  gap: 10px;
+  padding: 0 16px;
+}
+
+.palette.command-mode .drag-handle {
+  height: 38px;
+}
+
+.palette.command-mode #input:disabled {
+  opacity: 1;
+  color: #eeeeef;
+  font-size: 15.5px;
+  font-weight: 620;
+  letter-spacing: -0.1px;
+}
+
+.command-editor {
+  grid-template-columns: 190px minmax(0, 1fr);
+}
+
+.command-sidebar {
+  background: rgba(0, 0, 0, 0.1);
+}
+
+.command-sidebar-head {
+  height: 48px;
+  flex-basis: 48px;
+  padding: 0 12px 0 14px;
+  color: #8f8f98;
+  font-size: 11px;
+  letter-spacing: 0.2px;
+  text-transform: none;
+}
+
+.command-list {
+  padding: 2px 8px 10px;
+}
+
+.command-list-item {
+  height: 44px;
+  gap: 9px;
+  padding: 0 9px;
+}
+
+.command-list-icon {
+  width: 26px;
+  height: 26px;
+  flex-basis: 26px;
+  border-radius: 7px;
+}
+
+.command-list-name {
+  font-size: 12.5px;
+}
+
+.command-list-hotkey {
+  margin-top: 2px;
+  font-size: 9.5px;
+}
+
+.command-detail {
+  gap: 12px;
+  padding: 16px 18px 14px;
+}
+
+.command-primary-row {
+  height: 40px;
+  flex-basis: 40px;
+  gap: 10px;
+}
+
+.command-name,
+.command-hotkey {
+  height: 40px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.032);
+}
+
+.command-name {
+  padding: 0 12px;
+  font-size: 15px;
+}
+
+.command-hotkey {
+  width: 148px;
+  flex-basis: 148px;
+  font-size: 11px;
+}
+
+.command-options {
+  gap: 12px;
+}
+
+.command-option > span {
+  margin: 0 0 5px 2px;
+  color: #777781;
+  font-size: 9.5px;
+}
+
+.segmented {
+  height: 33px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.018);
+}
+
+.segmented button {
+  border-radius: 6px;
+  font-size: 10.5px;
+}
+
+.segmented button.selected {
+  background: rgba(255, 255, 255, 0.085);
+  box-shadow: 0 1px 5px rgba(0, 0, 0, 0.18);
+}
+
 .command-workbench {
   min-height: 0;
   flex: 1 1 auto;
@@ -14,79 +132,99 @@
 }
 
 .command-code-pane {
-  flex: 1.15 1 0;
+  flex: 1.35 1 0;
 }
 
 .command-preview {
-  flex: 0.85 1 0;
+  flex: 0.65 1 0;
+}
+
+.command-code-head,
+.command-preview-head {
+  height: 26px;
+  flex: 0 0 26px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 3px;
+  color: #85858e;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.command-code-head span:last-child {
+  color: #5f5f68;
+  font-weight: 500;
+}
+
+.command-code-head code {
+  color: #9b8fe0;
+  font-family: "Cascadia Code", "Cascadia Mono", Consolas, monospace;
 }
 
 .command-code-pane .command-code {
   min-height: 0;
   flex: 1;
+  border-radius: 10px;
+  padding: 12px 13px;
+  background: rgba(0, 0, 0, 0.16);
+  font-size: 12px;
+  line-height: 18px;
 }
 
 .command-resizer {
   position: relative;
-  height: 9px;
-  flex: 0 0 9px;
+  height: 16px;
+  flex: 0 0 16px;
   cursor: ns-resize;
 }
 
 .command-resizer::after {
   content: "";
   position: absolute;
-  top: 4px;
-  left: 42%;
-  right: 42%;
-  height: 1px;
-  border-radius: 1px;
-  background: rgba(255, 255, 255, 0.09);
-  transition: left 120ms ease, right 120ms ease, background-color 120ms ease;
+  top: 7px;
+  left: 50%;
+  width: 34px;
+  height: 2px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.1);
+  transform: translateX(-50%);
+  transition: width 120ms ease, background-color 120ms ease;
 }
 
 .command-resizer:hover::after,
 .command-workbench.resizing .command-resizer::after {
-  left: 37%;
-  right: 37%;
-  background: rgba(183, 166, 255, 0.45);
+  width: 46px;
+  background: rgba(183, 166, 255, 0.48);
 }
 
 .command-preview-head {
-  height: 22px;
-  flex: 0 0 22px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 2px;
-  color: #777780;
-  font-size: 9.5px;
-  font-weight: 600;
+  padding: 0 2px 0 3px;
 }
 
 .command-preview-run {
-  height: 19px;
+  height: 22px;
   border: 0;
-  border-radius: 5px;
-  padding: 0 6px;
+  border-radius: 6px;
+  padding: 0 8px;
   background: transparent;
-  color: #797982;
+  color: #85858e;
   font: inherit;
-  font-size: 9.5px;
+  font-size: 10px;
   cursor: default;
 }
 
 .command-preview-run:hover {
-  background: rgba(255, 255, 255, 0.055);
-  color: #c3c3c9;
+  background: rgba(255, 255, 255, 0.06);
+  color: #d0d0d5;
 }
 
 .command-preview-grid {
   min-height: 0;
   flex: 1;
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 7px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 10px;
 }
 
 .command-preview-field {
@@ -94,13 +232,13 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 5px;
 }
 
 .command-preview-field > span {
-  padding-left: 2px;
-  color: #606069;
-  font-size: 9px;
+  padding-left: 3px;
+  color: #65656e;
+  font-size: 9.5px;
   font-weight: 560;
 }
 
@@ -110,15 +248,15 @@
   min-height: 0;
   flex: 1;
   margin: 0;
-  border: 1px solid rgba(255, 255, 255, 0.075);
-  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 9px;
   outline: 0;
-  padding: 7px 8px;
-  background: rgba(255, 255, 255, 0.025);
-  color: #cacacf;
+  padding: 9px 10px;
+  background: rgba(0, 0, 0, 0.12);
+  color: #d0d0d5;
   font-family: "Cascadia Code", "Cascadia Mono", Consolas, monospace;
-  font-size: 10px;
-  line-height: 14px;
+  font-size: 10.5px;
+  line-height: 15px;
   white-space: pre-wrap;
   overflow: auto;
   scrollbar-width: none;
@@ -135,21 +273,37 @@
 }
 
 .command-example-input:focus {
-  border-color: rgba(174, 156, 255, 0.28);
-  background: rgba(255, 255, 255, 0.038);
+  border-color: rgba(174, 156, 255, 0.3);
+  background: rgba(255, 255, 255, 0.025);
 }
 
 .command-example-output.empty {
   display: block;
   height: auto;
-  color: #55555e;
+  color: #575760;
 }
 
 .command-example-output.error {
-  border-color: rgba(208, 118, 118, 0.22);
-  color: #d6a0a0;
+  border-color: rgba(208, 118, 118, 0.24);
+  color: #d9a3a3;
 }
 
 .command-example-output.running {
-  color: #686871;
+  color: #74747d;
+}
+
+.command-bottom {
+  height: 36px;
+  flex-basis: 36px;
+  padding-top: 2px;
+}
+
+.editor-button {
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 8px;
+}
+
+.command-status {
+  font-size: 10.5px;
 }
