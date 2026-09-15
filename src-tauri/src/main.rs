@@ -17,83 +17,40 @@ fn toggle_launcher(app: &AppHandle) {
 mod windows_key {
     use super::toggle_launcher;
     use std::{
-        mem::zeroed,
-        ptr::null,
+        mem::{size_of, zeroed},
+        ptr::{null, null_mut},
         sync::{
-            atomic::{AtomicBool, AtomicU32, Ordering},
+            atomic::{AtomicU32, AtomicU8, Ordering},
             mpsc::sync_channel,
             OnceLock,
         },
         thread,
     };
     use tauri::AppHandle;
+    use windows_sys::Win32::{
+        System::LibraryLoader::GetModuleHandleW,
+        UI::{
+            Input::KeyboardAndMouse::{
+                GetAsyncKeyState, SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT,
+                KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP, VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN,
+                VK_SHIFT,
+            },
+            WindowsAndMessaging::{
+                CallNextHookEx, DispatchMessageW, GetMessageW, SetWindowsHookExW,
+                TranslateMessage, UnhookWindowsHookEx, KBDLLHOOKSTRUCT, MSG, WH_KEYBOARD_LL,
+                WM_KEYDOWN, WM_KEYUP, WM_SYSKEYDOWN, WM_SYSKEYUP,
+            },
+        },
+    };
 
-    const WH_KEYBOARD_LL: i32 = 13;
-    const WM_KEYDOWN: u32 = 0x0100;
-    const WM_KEYUP: u32 = 0x0101;
-    const WM_SYSKEYDOWN: u32 = 0x0104;
-    const WM_SYSKEYUP: u32 = 0x0105;
-    const VK_LWIN: u32 = 0x5B;
-    const VK_RWIN: u32 = 0x5C;
-    const VK_SHIFT: u32 = 0x10;
-    const VK_CONTROL: u32 = 0x11;
-    const VK_MENU: u32 = 0x12;
-    const LLKHF_INJECTED: u32 = 0x10;
-    const KEYEVENTF_EXTENDEDKEY: u32 = 0x0001;
-    const KEYEVENTF_KEYUP: u32 = 0x0002;
+    const WIN_IDLE: u8 = 0;
+    const WIN_PENDING: u8 = 1;
+    const WIN_COMBINATION: u8 = 2;
+    const HYPERACT_INPUT_TAG: usize = 0x4859_5041;
 
     static APP: OnceLock<AppHandle> = OnceLock::new();
-    static WIN_DOWN: AtomicBool = AtomicBool::new(false);
-    static WIN_CHORD: AtomicBool = AtomicBool::new(false);
-    static WIN_FORWARDED: AtomicBool = AtomicBool::new(false);
-    static WIN_KEY: AtomicU32 = AtomicU32::new(VK_LWIN);
-    static SHIFT_DOWN: AtomicBool = AtomicBool::new(false);
-    static CTRL_DOWN: AtomicBool = AtomicBool::new(false);
-    static ALT_DOWN: AtomicBool = AtomicBool::new(false);
-
-    #[repr(C)]
-    struct KbdLlHookStruct {
-        vk_code: u32,
-        scan_code: u32,
-        flags: u32,
-        time: u32,
-        extra_info: usize,
-    }
-
-    #[repr(C)]
-    struct Point {
-        x: i32,
-        y: i32,
-    }
-
-    #[repr(C)]
-    struct Msg {
-        hwnd: isize,
-        message: u32,
-        w_param: usize,
-        l_param: isize,
-        time: u32,
-        point: Point,
-        private: u32,
-    }
-
-    type HookProc = unsafe extern "system" fn(i32, usize, isize) -> isize;
-
-    #[link(name = "user32")]
-    extern "system" {
-        fn SetWindowsHookExW(id_hook: i32, proc: Option<HookProc>, module: isize, thread_id: u32) -> isize;
-        fn CallNextHookEx(hook: isize, code: i32, w_param: usize, l_param: isize) -> isize;
-        fn UnhookWindowsHookEx(hook: isize) -> i32;
-        fn GetMessageW(message: *mut Msg, window: isize, min: u32, max: u32) -> i32;
-        fn TranslateMessage(message: *const Msg) -> i32;
-        fn DispatchMessageW(message: *const Msg) -> isize;
-        fn keybd_event(key: u8, scan: u8, flags: u32, extra_info: usize);
-    }
-
-    #[link(name = "kernel32")]
-    extern "system" {
-        fn GetModuleHandleW(module_name: *const u16) -> isize;
-    }
+    static WIN_STATE: AtomicU8 = AtomicU8::new(WIN_IDLE);
+    static WIN_KEY: AtomicU32 = AtomicU32::new(VK_LWIN as u32);
 
     pub fn install(app: AppHandle) {
         let _ = APP.set(app);
@@ -107,13 +64,13 @@ mod windows_key {
                 0,
             );
 
-            let _ = ready_tx.send(hook != 0);
-            if hook == 0 {
+            let _ = ready_tx.send(!hook.is_null());
+            if hook.is_null() {
                 return;
             }
 
-            let mut message: Msg = zeroed();
-            while GetMessageW(&mut message, 0, 0, 0) > 0 {
+            let mut message: MSG = zeroed();
+            while GetMessageW(&mut message, null_mut(), 0, 0) > 0 {
                 TranslateMessage(&message);
                 DispatchMessageW(&message);
             }
@@ -126,14 +83,15 @@ mod windows_key {
 
     unsafe extern "system" fn keyboard_hook(code: i32, w_param: usize, l_param: isize) -> isize {
         if code < 0 {
-            return CallNextHookEx(0, code, w_param, l_param);
+            return CallNextHookEx(null_mut(), code, w_param, l_param);
         }
 
-        let key = &*(l_param as *const KbdLlHookStruct);
+        let key = &*(l_param as *const KBDLLHOOKSTRUCT);
 
-        // Our synthesized Win events must continue through the hook chain.
-        if key.flags & LLKHF_INJECTED != 0 {
-            return CallNextHookEx(0, code, w_param, l_param);
+        // Only ignore input synthesized by Hyperact itself. Other injected input
+        // should behave like physical input so remappers and unusual keyboards work.
+        if key.dwExtraInfo == HYPERACT_INPUT_TAG {
+            return CallNextHookEx(null_mut(), code, w_param, l_param);
         }
 
         let message = w_param as u32;
@@ -141,86 +99,80 @@ mod windows_key {
         let is_up = message == WM_KEYUP || message == WM_SYSKEYUP;
 
         if !is_down && !is_up {
-            return CallNextHookEx(0, code, w_param, l_param);
+            return CallNextHookEx(null_mut(), code, w_param, l_param);
         }
 
-        let is_win = key.vk_code == VK_LWIN || key.vk_code == VK_RWIN;
+        let is_win = key.vkCode == VK_LWIN as u32 || key.vkCode == VK_RWIN as u32;
 
         if is_win && is_down {
-            if WIN_DOWN.swap(true, Ordering::SeqCst) {
+            if WIN_STATE.load(Ordering::SeqCst) != WIN_IDLE {
                 return 1;
             }
 
-            WIN_KEY.store(key.vk_code, Ordering::SeqCst);
+            WIN_KEY.store(key.vkCode, Ordering::SeqCst);
+            WIN_STATE.store(WIN_PENDING, Ordering::SeqCst);
 
-            // If Shift/Ctrl/Alt was already held before Win, this was never a bare
-            // Win tap. Let Windows receive the real Win press normally.
-            let preexisting_modifier = modifier_held();
-            WIN_CHORD.store(preexisting_modifier, Ordering::SeqCst);
-            WIN_FORWARDED.store(preexisting_modifier, Ordering::SeqCst);
-
-            if preexisting_modifier {
-                return CallNextHookEx(0, code, w_param, l_param);
+            // A modifier already held before Win means this cannot be a bare Win tap.
+            if modifier_held() {
+                promote_to_combination();
             }
 
-            // Hold Win back until we know whether it is a bare tap or a chord.
+            // Always suppress the physical Win-down. If another key joins it, we
+            // synthesize the original Win-down immediately before that key continues.
             return 1;
         }
 
         if is_win && is_up {
-            if !WIN_DOWN.swap(false, Ordering::SeqCst) {
+            if key.vkCode != WIN_KEY.load(Ordering::SeqCst) {
                 return 1;
             }
 
-            let chord = WIN_CHORD.swap(false, Ordering::SeqCst);
-            let forwarded = WIN_FORWARDED.swap(false, Ordering::SeqCst);
-
-            if chord {
-                if forwarded {
-                    // A pre-existing modifier made us forward the real Win-down.
-                    return CallNextHookEx(0, code, w_param, l_param);
-                }
-
-                // Windows saw our synthesized Win-down; complete it synthetically.
-                inject_win(false);
-                return 1;
+            match WIN_STATE.swap(WIN_IDLE, Ordering::SeqCst) {
+                WIN_PENDING => request_toggle(),
+                WIN_COMBINATION => send_win(false),
+                _ => {}
             }
 
-            // Windows received neither side of this bare Win tap.
-            request_toggle();
+            // The physical Win-up always matches a physical Win-down we suppressed.
             return 1;
         }
 
-        update_modifier_state(key.vk_code, is_down, is_up);
-
-        if is_down && WIN_DOWN.load(Ordering::SeqCst) && !WIN_CHORD.swap(true, Ordering::SeqCst) {
-            // A second key joined a previously withheld Win press. Make Win appear
-            // down immediately before the real second key continues to Windows.
-            inject_win(true);
+        if is_down && WIN_STATE.load(Ordering::SeqCst) == WIN_PENDING {
+            promote_to_combination();
         }
 
-        CallNextHookEx(0, code, w_param, l_param)
+        CallNextHookEx(null_mut(), code, w_param, l_param)
     }
 
-    fn update_modifier_state(key: u32, down: bool, up: bool) {
-        let state = down && !up;
-        match key {
-            VK_SHIFT | 0xA0 | 0xA1 => SHIFT_DOWN.store(state, Ordering::SeqCst),
-            VK_CONTROL | 0xA2 | 0xA3 => CTRL_DOWN.store(state, Ordering::SeqCst),
-            VK_MENU | 0xA4 | 0xA5 => ALT_DOWN.store(state, Ordering::SeqCst),
-            _ => {}
+    unsafe fn modifier_held() -> bool {
+        key_held(VK_SHIFT) || key_held(VK_CONTROL) || key_held(VK_MENU)
+    }
+
+    unsafe fn key_held(key: u16) -> bool {
+        GetAsyncKeyState(key as i32) as u16 & 0x8000 != 0
+    }
+
+    unsafe fn promote_to_combination() {
+        if WIN_STATE.swap(WIN_COMBINATION, Ordering::SeqCst) == WIN_PENDING {
+            send_win(true);
         }
     }
 
-    fn modifier_held() -> bool {
-        SHIFT_DOWN.load(Ordering::SeqCst)
-            || CTRL_DOWN.load(Ordering::SeqCst)
-            || ALT_DOWN.load(Ordering::SeqCst)
-    }
+    unsafe fn send_win(down: bool) {
+        let input = INPUT {
+            r#type: INPUT_KEYBOARD,
+            Anonymous: INPUT_0 {
+                ki: KEYBDINPUT {
+                    wVk: WIN_KEY.load(Ordering::SeqCst) as u16,
+                    wScan: 0,
+                    dwFlags: KEYEVENTF_EXTENDEDKEY | if down { 0 } else { KEYEVENTF_KEYUP },
+                    time: 0,
+                    dwExtraInfo: HYPERACT_INPUT_TAG,
+                },
+            },
+        };
 
-    unsafe fn inject_win(down: bool) {
-        let flags = KEYEVENTF_EXTENDEDKEY | if down { 0 } else { KEYEVENTF_KEYUP };
-        keybd_event(WIN_KEY.load(Ordering::SeqCst) as u8, 0, flags, 0);
+        SendInput(1, &input, size_of::<INPUT>() as i32);
     }
 
     fn request_toggle() {
