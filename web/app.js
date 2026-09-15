@@ -9,6 +9,8 @@ const commandNew = document.querySelector("#command-new");
 const commandName = document.querySelector("#command-name");
 const commandHotkey = document.querySelector("#command-hotkey");
 const commandInputMode = document.querySelector("#command-input-mode");
+const commandMissingInput = document.querySelector("#command-missing-input");
+const commandOutputMode = document.querySelector("#command-output-mode");
 const commandCode = document.querySelector("#command-code");
 const commandStatus = document.querySelector("#command-status");
 const commandDelete = document.querySelector("#command-delete");
@@ -27,6 +29,8 @@ let commands = loadCommands();
 let activeCommand = null;
 let commandError = "";
 let registeredCommandHotkeys = [];
+let promptTarget = null;
+let promptSelectAll = false;
 
 const systemActions = [
   { icon: "▣", title: "File Explorer", detail: "Windows", id: "explorer", keywords: "files folders", default: true },
@@ -63,11 +67,21 @@ function loadCommands() {
 
     return saved
       .filter(command => command && command.id && command.name && typeof command.code === "string")
-      .map(({ id, name, hotkey = "", inputMode = "focused", code }) => ({
+      .map(({
+        id,
+        name,
+        hotkey = "",
+        inputMode = "focused",
+        missingInput = "prompt",
+        outputMode = "type",
+        code
+      }) => ({
         id,
         name,
         hotkey,
         inputMode: inputMode === "selected" ? "selected" : "focused",
+        missingInput: missingInput === "nothing" ? "nothing" : "prompt",
+        outputMode: outputMode === "paste" ? "paste" : "type",
         code
       }));
   } catch {
@@ -177,10 +191,12 @@ function buildActions(value) {
     return [{
       icon: "N",
       title: `Run ${activeCommand.name}`,
-      detail: commandError || "Node.js command",
+      detail: commandError || (promptTarget !== null ? "Enter submit · Shift+Enter run again" : "Node.js command"),
       category: "Command",
       score: 0,
-      run: () => runCommand(activeCommand, value)
+      run: () => promptTarget !== null
+        ? runPromptCommand(false)
+        : runCommand(activeCommand, value)
     }];
   }
 
@@ -304,12 +320,77 @@ async function runCommand(command, value) {
   }
 }
 
+async function runPromptCommand(stayOpen) {
+  const command = activeCommand;
+  if (!command || promptTarget === null) return;
+
+  commandError = "";
+
+  try {
+    const output = String(await invoke("run_node_command", {
+      code: command.code,
+      input: input.value
+    }));
+
+    if (stayOpen) {
+      setInput(output);
+      input.select();
+      return;
+    }
+
+    const target = promptTarget;
+    const selectAll = promptSelectAll;
+    promptTarget = null;
+    promptSelectAll = false;
+    activeCommand = null;
+    input.value = "";
+    input.placeholder = defaultPlaceholder;
+    selected = 0;
+    render();
+
+    await hideLauncher();
+    await invoke("submit_prompt_result", {
+      target,
+      output,
+      outputMode: command.outputMode,
+      selectAll
+    });
+  } catch (error) {
+    commandError = error?.message || String(error);
+    render();
+  }
+}
+
+async function openPromptMode(command, target, selectAll) {
+  if (!commandEditor.hidden) closeCommandEditor();
+
+  activeCommand = command;
+  promptTarget = target;
+  promptSelectAll = selectAll;
+  commandError = "";
+  input.disabled = false;
+  input.value = "";
+  input.placeholder = `${command.name} input…`;
+  selected = 0;
+  render();
+
+  await currentWindow.show();
+  await currentWindow.setFocus();
+  input.focus();
+}
+
 async function runHotkeyCommand(command) {
   try {
-    await invoke("run_hotkey_command", {
+    const prompt = await invoke("run_hotkey_command", {
       code: command.code,
-      inputMode: command.inputMode
+      inputMode: command.inputMode,
+      missingInput: command.missingInput,
+      outputMode: command.outputMode
     });
+
+    if (Array.isArray(prompt) && prompt.length >= 2) {
+      await openPromptMode(command, prompt[0], Boolean(prompt[1]));
+    }
   } catch (error) {
     console.error(error);
   }
@@ -513,6 +594,8 @@ function loadEditorCommand(id) {
   commandName.value = command?.name || "";
   commandHotkey.value = command?.hotkey || "";
   commandInputMode.value = command?.inputMode === "selected" ? "selected" : "focused";
+  commandMissingInput.value = command?.missingInput === "nothing" ? "nothing" : "prompt";
+  commandOutputMode.value = command?.outputMode === "paste" ? "paste" : "type";
   commandCode.value = command?.code || "return input;";
   commandDelete.hidden = !command;
   commandStatus.textContent = "";
@@ -522,6 +605,8 @@ function loadEditorCommand(id) {
 
 function openCommandEditor(id = "") {
   activeCommand = null;
+  promptTarget = null;
+  promptSelectAll = false;
   commandError = "";
   input.value = "";
   input.placeholder = "Commands";
@@ -552,6 +637,8 @@ async function saveEditorCommand() {
   const code = commandCode.value.trim();
   const hotkey = normalizeHotkey(commandHotkey.value);
   const inputMode = commandInputMode.value === "selected" ? "selected" : "focused";
+  const missingInput = commandMissingInput.value === "nothing" ? "nothing" : "prompt";
+  const outputMode = commandOutputMode.value === "paste" ? "paste" : "type";
 
   if (!name) {
     commandStatus.textContent = "Give the command a name.";
@@ -567,7 +654,7 @@ async function saveEditorCommand() {
 
   const existing = commands.find(command => command.id === commandSelect.value);
   const id = existing?.id || crypto.randomUUID();
-  const next = { id, name, hotkey, inputMode, code };
+  const next = { id, name, hotkey, inputMode, missingInput, outputMode, code };
 
   if (existing) {
     commands = commands.map(command => command.id === id ? next : command);
@@ -637,7 +724,10 @@ document.addEventListener("keydown", event => {
     return;
   }
 
-  if (event.key === "ArrowDown" && items.length) {
+  if (event.key === "Enter" && activeCommand && promptTarget !== null) {
+    event.preventDefault();
+    runPromptCommand(event.shiftKey).catch(console.error);
+  } else if (event.key === "ArrowDown" && items.length) {
     event.preventDefault();
     selectItem(selected + 1);
   } else if (event.key === "ArrowUp" && items.length) {
@@ -648,7 +738,16 @@ document.addEventListener("keydown", event => {
     run();
   } else if (event.key === "Escape") {
     event.preventDefault();
-    if (activeCommand) {
+    if (promptTarget !== null) {
+      promptTarget = null;
+      promptSelectAll = false;
+      activeCommand = null;
+      commandError = "";
+      input.value = "";
+      input.placeholder = defaultPlaceholder;
+      render();
+      hideLauncher().catch(console.error);
+    } else if (activeCommand) {
       activeCommand = null;
       commandError = "";
       input.value = "";
