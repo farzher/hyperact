@@ -169,7 +169,8 @@
   };
 
   document.addEventListener("keydown", event => {
-    if (!promptInputLocked || promptTarget === null) return;
+    const locked = promptInputLocked || window.hyperactDeferredPromptLocked;
+    if (!locked || promptTarget === null) return;
     if (["Control", "Shift", "Alt", "Meta", "Escape"].includes(event.key)) return;
     event.preventDefault();
     event.stopImmediatePropagation();
