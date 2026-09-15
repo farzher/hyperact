@@ -7,6 +7,17 @@
     "frontendDist": "../web"
   },
   "app": {
+    "withGlobalTauri": true,
+    "capabilities": [
+      {
+        "identifier": "main-window",
+        "windows": ["main"],
+        "permissions": [
+          "core:window:default",
+          "core:window:allow-start-dragging"
+        ]
+      }
+    ],
     "windows": [
       {
         "label": "main",
