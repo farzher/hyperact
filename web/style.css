@@ -52,7 +52,6 @@ body {
   flex: 0 0 28px;
   display: grid;
   place-items: center;
-  cursor: move;
 }
 
 .query-icon {
