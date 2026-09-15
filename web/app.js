@@ -839,8 +839,9 @@ document.addEventListener("keydown", event => {
       commandError = "";
       input.value = "";
       input.placeholder = defaultPlaceholder;
+      selected = 0;
       render();
-      hideLauncher().catch(console.error);
+      input.focus();
     } else if (activeCommand) {
       activeCommand = null;
       commandError = "";
