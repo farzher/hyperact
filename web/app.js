@@ -1,6 +1,7 @@
 const input = document.querySelector("#input");
 const actions = document.querySelector("#actions");
 const kind = document.querySelector("#kind");
+const dragHandle = document.querySelector("#drag-handle");
 
 let items = [];
 let selected = 0;
@@ -150,6 +151,12 @@ function render() {
 input.addEventListener("input", () => {
   selected = 0;
   render();
+});
+
+dragHandle.addEventListener("mousedown", event => {
+  if (event.button === 0) {
+    window.__TAURI__.window.getCurrentWindow().startDragging();
+  }
 });
 
 window.addEventListener("focus", () => input.focus());
