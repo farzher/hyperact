@@ -108,30 +108,34 @@ body {
   min-height: 0;
   padding: 6px 7px;
   overflow: hidden auto;
-  scrollbar-width: thin;
-  scrollbar-color: transparent transparent;
-}
-
-.actions.scrolling {
-  scrollbar-color: rgba(255, 255, 255, 0.26) transparent;
 }
 
 .actions::-webkit-scrollbar {
-  width: 5px;
+  width: 6px;
+  background: transparent;
 }
 
-.actions::-webkit-scrollbar-track {
+.actions::-webkit-scrollbar-track,
+.actions::-webkit-scrollbar-corner {
   background: transparent;
+}
+
+.actions::-webkit-scrollbar-button {
+  width: 0;
+  height: 0;
+  display: none;
 }
 
 .actions::-webkit-scrollbar-thumb {
-  border-radius: 5px;
-  background: transparent;
-  transition: background-color 180ms ease;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0);
+  background-clip: padding-box;
+  transition: background-color 420ms ease;
 }
 
 .actions.scrolling::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.26);
+  background-color: rgba(255, 255, 255, 0.28);
 }
 
 .empty {
