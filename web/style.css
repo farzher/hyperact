@@ -266,6 +266,15 @@ body {
   font: inherit;
 }
 
+.command-editor select {
+  color-scheme: dark;
+}
+
+.command-editor select option {
+  background: #1b1b1f;
+  color: #eeeeef;
+}
+
 .command-editor select,
 .command-editor input {
   height: 34px;
