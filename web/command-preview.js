@@ -163,43 +163,78 @@
   openPromptMode = async function (command, target, selectAll, focus = 0) {
     promptInputLocked = true;
     input.readOnly = true;
-    await hyperWindow.setFocusable(true);
-    await hyperWindow.setAlwaysOnTop(false);
     await baseOpenPromptMode(command, target, selectAll, focus);
     input.readOnly = true;
     waitForPromptModifiers();
   };
 
-  openDeferredPromptMode = async function (command, target, focus = 0) {
-    if (!editor.hidden) closeCommandEditor();
-
-    activeCommand = command;
-    promptTarget = target;
-    promptSelectAll = false;
-    promptFocus = focus;
-    commandError = "";
-    window.hyperactDeferredPromptLocked = true;
-    window.hyperactKeepVisible = true;
-    input.disabled = false;
-    input.readOnly = true;
-    input.value = "";
-    input.placeholder = `${command.name} input…`;
-    selected = 0;
-    render();
-
-    await invoke("show_launcher_no_activate");
-  };
-
-  const baseContinueDeferredHotkey = continueDeferredHotkey;
-  continueDeferredHotkey = async function (command, target, focus, run) {
+  async function launcherVisible() {
     try {
-      return await baseContinueDeferredHotkey(command, target, focus, run);
-    } finally {
+      return await hyperWindow.isVisible();
+    } catch {
+      return false;
+    }
+  }
+
+  continueDeferredHotkey = async function (command, target, focus, run) {
+    while (run === deferredRun) {
+      if (await launcherVisible()) return;
+
       try {
-        await hyperWindow.setAlwaysOnTop(false);
+        if (!await invoke("non_ctrl_modifiers_held")) break;
       } catch (error) {
         console.error(error);
+        return;
       }
+
+      await new Promise(resolve => setTimeout(resolve, 8));
+    }
+
+    if (run !== deferredRun || await launcherVisible()) return;
+
+    try {
+      const prompt = await invoke("resume_hotkey_command", {
+        code: command.code,
+        inputMode: command.inputMode,
+        missingInput: command.missingInput,
+        outputMode: command.outputMode,
+        target,
+        focus
+      });
+
+      if (run !== deferredRun || await launcherVisible()) return;
+
+      if (Array.isArray(prompt) && prompt.length >= 2) {
+        await openPromptMode(command, target, Boolean(prompt[1]), prompt[3] || focus);
+      }
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
+  runHotkeyCommand = async function (command) {
+    const run = ++deferredRun;
+
+    try {
+      const prompt = await invoke("run_hotkey_command", {
+        code: command.code,
+        inputMode: command.inputMode,
+        missingInput: command.missingInput,
+        outputMode: command.outputMode
+      });
+
+      if (run !== deferredRun) return;
+
+      if (Array.isArray(prompt) && prompt.length >= 3 && prompt[2] === 1) {
+        continueDeferredHotkey(command, prompt[0], prompt[3] || 0, run).catch(console.error);
+        return;
+      }
+
+      if (Array.isArray(prompt) && prompt.length >= 2) {
+        await openPromptMode(command, prompt[0], Boolean(prompt[1]), prompt[3] || 0);
+      }
+    } catch (error) {
+      console.error(error);
     }
   };
 
