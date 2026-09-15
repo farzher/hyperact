@@ -193,5 +193,5 @@
     if (!editor.hidden) applySplit(savedSplit());
   });
 
-  refreshCommandHotkeys().catch(console.error);
+  setTimeout(() => refreshCommandHotkeys().catch(console.error), 100);
 })();
