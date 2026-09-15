@@ -2,7 +2,7 @@
   color-scheme: dark;
   font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
   color: #f7f7f8;
-  background: #141417;
+  background: transparent;
   font-synthesis: none;
 }
 
@@ -16,7 +16,7 @@ body {
   height: 100%;
   margin: 0;
   overflow: hidden;
-  background: #141417;
+  background: transparent;
 }
 
 body {
@@ -46,10 +46,23 @@ body {
   border-bottom: 1px solid rgba(255, 255, 255, 0.075);
 }
 
+.drag-handle {
+  width: 28px;
+  height: 52px;
+  flex: 0 0 28px;
+  display: grid;
+  place-items: center;
+  cursor: grab;
+}
+
+.drag-handle:active {
+  cursor: grabbing;
+}
+
 .query-icon {
   width: 22px;
   height: 22px;
-  flex: 0 0 auto;
+  pointer-events: none;
   fill: #b7a6ff;
   filter: drop-shadow(0 0 10px rgba(154, 128, 255, 0.25));
 }
