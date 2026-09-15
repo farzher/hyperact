@@ -1,0 +1,155 @@
+.command-workbench {
+  min-height: 0;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.command-code-pane,
+.command-preview {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.command-code-pane {
+  flex: 1.15 1 0;
+}
+
+.command-preview {
+  flex: 0.85 1 0;
+}
+
+.command-code-pane .command-code {
+  min-height: 0;
+  flex: 1;
+}
+
+.command-resizer {
+  position: relative;
+  height: 9px;
+  flex: 0 0 9px;
+  cursor: ns-resize;
+}
+
+.command-resizer::after {
+  content: "";
+  position: absolute;
+  top: 4px;
+  left: 42%;
+  right: 42%;
+  height: 1px;
+  border-radius: 1px;
+  background: rgba(255, 255, 255, 0.09);
+  transition: left 120ms ease, right 120ms ease, background-color 120ms ease;
+}
+
+.command-resizer:hover::after,
+.command-workbench.resizing .command-resizer::after {
+  left: 37%;
+  right: 37%;
+  background: rgba(183, 166, 255, 0.45);
+}
+
+.command-preview-head {
+  height: 22px;
+  flex: 0 0 22px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 2px;
+  color: #777780;
+  font-size: 9.5px;
+  font-weight: 600;
+}
+
+.command-preview-run {
+  height: 19px;
+  border: 0;
+  border-radius: 5px;
+  padding: 0 6px;
+  background: transparent;
+  color: #797982;
+  font: inherit;
+  font-size: 9.5px;
+  cursor: default;
+}
+
+.command-preview-run:hover {
+  background: rgba(255, 255, 255, 0.055);
+  color: #c3c3c9;
+}
+
+.command-preview-grid {
+  min-height: 0;
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px;
+}
+
+.command-preview-field {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.command-preview-field > span {
+  padding-left: 2px;
+  color: #606069;
+  font-size: 9px;
+  font-weight: 560;
+}
+
+.command-example-input,
+.command-example-output {
+  width: 100%;
+  min-height: 0;
+  flex: 1;
+  margin: 0;
+  border: 1px solid rgba(255, 255, 255, 0.075);
+  border-radius: 8px;
+  outline: 0;
+  padding: 7px 8px;
+  background: rgba(255, 255, 255, 0.025);
+  color: #cacacf;
+  font-family: "Cascadia Code", "Cascadia Mono", Consolas, monospace;
+  font-size: 10px;
+  line-height: 14px;
+  white-space: pre-wrap;
+  overflow: auto;
+  scrollbar-width: none;
+  user-select: text;
+}
+
+.command-example-input::-webkit-scrollbar,
+.command-example-output::-webkit-scrollbar {
+  display: none;
+}
+
+.command-example-input {
+  resize: none;
+}
+
+.command-example-input:focus {
+  border-color: rgba(174, 156, 255, 0.28);
+  background: rgba(255, 255, 255, 0.038);
+}
+
+.command-example-output.empty {
+  display: block;
+  height: auto;
+  color: #55555e;
+}
+
+.command-example-output.error {
+  border-color: rgba(208, 118, 118, 0.22);
+  color: #d6a0a0;
+}
+
+.command-example-output.running {
+  color: #686871;
+}
