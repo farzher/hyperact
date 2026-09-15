@@ -261,10 +261,11 @@ fn execute_hotkey_command(
     missing_input: String,
     output_mode: String,
     target: u64,
+    focus: u64,
 ) -> Result<Vec<u64>, String> {
     use std::{thread, time::Duration};
 
-    windows_text::focus_window(target)?;
+    windows_text::restore_control(target, focus)?;
     let original_clipboard = windows_text::read_clipboard_text().ok().flatten();
     let mut captured = windows_text::copy_selection()?;
     let mut selected_all = false;
@@ -282,12 +283,13 @@ fn execute_hotkey_command(
 
     let Some(input) = captured else {
         if missing_input == "prompt" {
-            return Ok(vec![target, u64::from(selected_all)]);
+            return Ok(vec![target, u64::from(selected_all), 0, focus]);
         }
         return Ok(Vec::new());
     };
 
     let output = run_node_command(code, input)?;
+    windows_text::restore_control(target, focus)?;
     windows_text::insert_result(
         target,
         &output,
@@ -308,13 +310,14 @@ fn run_hotkey_command(
     #[cfg(target_os = "windows")]
     {
         let target = windows_text::foreground_window()?;
+        let focus = windows_text::focused_control(target);
 
         if missing_input == "prompt" && windows_text::non_ctrl_modifiers_held() {
-            return Ok(vec![target, 0, 1]);
+            return Ok(vec![target, 0, 1, focus]);
         }
 
         windows_text::wait_for_non_ctrl_modifiers_release();
-        return execute_hotkey_command(code, input_mode, missing_input, output_mode, target);
+        return execute_hotkey_command(code, input_mode, missing_input, output_mode, target, focus);
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -328,11 +331,12 @@ fn resume_hotkey_command(
     missing_input: String,
     output_mode: String,
     target: u64,
+    focus: u64,
 ) -> Result<Vec<u64>, String> {
     #[cfg(target_os = "windows")]
     {
         windows_text::wait_for_non_ctrl_modifiers_release();
-        return execute_hotkey_command(code, input_mode, missing_input, output_mode, target);
+        return execute_hotkey_command(code, input_mode, missing_input, output_mode, target, focus);
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -345,10 +349,12 @@ fn submit_prompt_result(
     output: String,
     output_mode: String,
     select_all: bool,
+    focus: u64,
 ) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
         let original_clipboard = windows_text::read_clipboard_text().ok().flatten();
+        windows_text::restore_control(target, focus)?;
         return windows_text::insert_result(
             target,
             &output,
@@ -502,6 +508,27 @@ mod windows_text {
         data: InputData,
     }
 
+    #[repr(C)]
+    struct Rect {
+        left: i32,
+        top: i32,
+        right: i32,
+        bottom: i32,
+    }
+
+    #[repr(C)]
+    struct GuiThreadInfo {
+        cb_size: u32,
+        flags: u32,
+        hwnd_active: *mut c_void,
+        hwnd_focus: *mut c_void,
+        hwnd_capture: *mut c_void,
+        hwnd_menu_owner: *mut c_void,
+        hwnd_move_size: *mut c_void,
+        hwnd_caret: *mut c_void,
+        rc_caret: Rect,
+    }
+
     #[link(name = "user32")]
     unsafe extern "system" {
         fn OpenClipboard(window: *mut c_void) -> i32;
@@ -514,6 +541,10 @@ mod windows_text {
         fn GetAsyncKeyState(key: i32) -> i16;
         fn GetForegroundWindow() -> *mut c_void;
         fn SetForegroundWindow(window: *mut c_void) -> i32;
+        fn GetWindowThreadProcessId(window: *mut c_void, process_id: *mut u32) -> u32;
+        fn GetGUIThreadInfo(thread_id: u32, info: *mut GuiThreadInfo) -> i32;
+        fn AttachThreadInput(from: u32, to: u32, attach: i32) -> i32;
+        fn SetFocus(window: *mut c_void) -> *mut c_void;
         fn SendInput(count: u32, inputs: *const Input, size: i32) -> u32;
         fn keybd_event(key: u8, scan: u8, flags: u32, extra_info: usize);
     }
@@ -525,6 +556,7 @@ mod windows_text {
         fn GlobalLock(memory: *mut c_void) -> *mut c_void;
         fn GlobalUnlock(memory: *mut c_void) -> i32;
         fn GlobalSize(memory: *mut c_void) -> usize;
+        fn GetCurrentThreadId() -> u32;
     }
 
     fn open_clipboard() -> Result<(), String> {
@@ -634,6 +666,26 @@ mod windows_text {
         }
     }
 
+    pub fn focused_control(target: u64) -> u64 {
+        let window = target as usize as *mut c_void;
+        if window.is_null() {
+            return 0;
+        }
+
+        let thread_id = unsafe { GetWindowThreadProcessId(window, ptr::null_mut()) };
+        if thread_id == 0 {
+            return 0;
+        }
+
+        let mut info: GuiThreadInfo = unsafe { std::mem::zeroed() };
+        info.cb_size = std::mem::size_of::<GuiThreadInfo>() as u32;
+        if unsafe { GetGUIThreadInfo(thread_id, &mut info) } == 0 || info.hwnd_focus.is_null() {
+            0
+        } else {
+            info.hwnd_focus as usize as u64
+        }
+    }
+
     pub fn focus_window(target: u64) -> Result<(), String> {
         let window = target as usize as *mut c_void;
         if window.is_null() {
@@ -648,6 +700,32 @@ mod windows_text {
             return Err("Could not restore the original window".into());
         }
         thread::sleep(Duration::from_millis(25));
+        Ok(())
+    }
+
+    pub fn restore_control(target: u64, focus: u64) -> Result<(), String> {
+        focus_window(target)?;
+        if focus == 0 {
+            return Ok(());
+        }
+
+        let window = focus as usize as *mut c_void;
+        if window.is_null() {
+            return Ok(());
+        }
+
+        let target_thread = unsafe { GetWindowThreadProcessId(window, ptr::null_mut()) };
+        let current_thread = unsafe { GetCurrentThreadId() };
+        let attached = target_thread != 0
+            && target_thread != current_thread
+            && unsafe { AttachThreadInput(current_thread, target_thread, 1) } != 0;
+
+        unsafe { SetFocus(window) };
+
+        if attached {
+            unsafe { AttachThreadInput(current_thread, target_thread, 0) };
+        }
+        thread::sleep(Duration::from_millis(5));
         Ok(())
     }
 
