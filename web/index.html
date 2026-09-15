@@ -59,5 +59,11 @@
       <span><kbd>esc</kbd> back</span>
     </footer>
   </main>
+
+  <script>
+    window.addEventListener("blur", () => {
+      window.__TAURI__.window.getCurrentWindow().hide();
+    });
+  </script>
 </body>
 </html>
