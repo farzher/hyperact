@@ -77,6 +77,10 @@ body {
   letter-spacing: -0.25px;
 }
 
+#input:disabled {
+  opacity: 0.5;
+}
+
 #input::placeholder {
   color: #77777f;
 }
@@ -204,6 +208,124 @@ body {
   display: flex;
 }
 
+.command-editor {
+  flex: 1;
+  min-height: 0;
+  padding: 14px 16px 13px;
+  overflow: hidden auto;
+}
+
+.command-editor[hidden] {
+  display: none;
+}
+
+.command-editor-head {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.command-editor select,
+.command-editor input,
+.command-editor textarea {
+  width: 100%;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 8px;
+  outline: 0;
+  background: rgba(255, 255, 255, 0.045);
+  color: #eeeeef;
+  font: inherit;
+}
+
+.command-editor select,
+.command-editor input {
+  height: 34px;
+  padding: 0 10px;
+}
+
+.command-editor-head select {
+  flex: 1;
+}
+
+.editor-field {
+  display: block;
+  margin-top: 10px;
+}
+
+.editor-field > span {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  margin-bottom: 5px;
+  color: #aaaab2;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.editor-field small {
+  color: #66666e;
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.editor-code-field textarea {
+  height: 100px;
+  resize: none;
+  padding: 9px 10px;
+  font-family: "Cascadia Code", "Cascadia Mono", Consolas, monospace;
+  font-size: 11.5px;
+  line-height: 17px;
+}
+
+.editor-help,
+.command-status {
+  margin-top: 7px;
+  color: #6f6f77;
+  font-size: 10.5px;
+  line-height: 15px;
+}
+
+.editor-help code {
+  color: #9b8fe0;
+}
+
+.command-status {
+  min-height: 15px;
+  color: #d8a8a8;
+}
+
+.command-editor-actions {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.editor-button {
+  height: 32px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 8px;
+  padding: 0 11px;
+  background: rgba(255, 255, 255, 0.045);
+  color: #b9b9c0;
+  font: inherit;
+  font-size: 11px;
+  cursor: default;
+}
+
+.editor-button:hover {
+  background: rgba(255, 255, 255, 0.075);
+}
+
+.editor-button.primary {
+  background: rgba(151, 126, 255, 0.14);
+  color: #d8d0ff;
+}
+
+.editor-button.danger {
+  color: #bc8585;
+}
+
 .footer {
   height: 39px;
   flex: 0 0 39px;
@@ -215,6 +337,10 @@ body {
   border-top: 1px solid rgba(255, 255, 255, 0.06);
   color: #686870;
   font-size: 10.5px;
+}
+
+.footer[hidden] {
+  display: none;
 }
 
 .footer span {
