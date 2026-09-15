@@ -10,6 +10,8 @@
   const commandList = document.querySelector("#command-list");
   const commandNew = document.querySelector("#command-new");
   const invoke = window.__TAURI__.core.invoke;
+  const hyperWindow = window.__TAURI__.window.getCurrentWindow();
+  const LogicalSize = window.__TAURI__.dpi?.LogicalSize;
   const splitKey = "hyperact.commandEditorSplit";
 
   let runTimer;
@@ -58,8 +60,8 @@
     if (!height) return;
 
     const handle = resizer.offsetHeight;
-    const minCode = 62;
-    const minPreview = 68;
+    const minCode = 130;
+    const minPreview = 110;
     const usable = Math.max(1, height - handle);
     const min = minCode / usable;
     const max = 1 - minPreview / usable;
@@ -71,7 +73,7 @@
 
   function savedSplit() {
     const value = Number(localStorage.getItem(splitKey));
-    return Number.isFinite(value) && value > 0 ? value : 0.56;
+    return Number.isFinite(value) && value > 0 ? value : 0.64;
   }
 
   function startResize(event) {
@@ -100,6 +102,63 @@
     localStorage.setItem(splitKey, String(ratio));
   }
 
+  async function resizeForEditor(open) {
+    if (!LogicalSize) return;
+
+    try {
+      await hyperWindow.setSize(new LogicalSize(open ? 920 : 720, open ? 620 : 430));
+      await hyperWindow.center();
+    } catch (error) {
+      console.error(error);
+    }
+  }
+
+  const pressedHotkeys = new Set();
+
+  refreshCommandHotkeys = async function () {
+    const failures = new Map();
+    if (!globalShortcut) return failures;
+
+    for (const hotkey of registeredCommandHotkeys) {
+      try {
+        await globalShortcut.unregister(hotkey);
+      } catch {}
+    }
+
+    registeredCommandHotkeys = [];
+    pressedHotkeys.clear();
+    const seen = new Set(["alt+space"]);
+
+    for (const command of commands) {
+      const hotkey = normalizeHotkey(command.hotkey || "");
+      if (!hotkey) continue;
+
+      const key = hotkey.toLowerCase();
+      if (seen.has(key)) {
+        failures.set(command.id, "Hotkey is already in use by Hyperact");
+        continue;
+      }
+      seen.add(key);
+
+      try {
+        await globalShortcut.register(hotkey, event => {
+          if (event.state === "Pressed") {
+            if (pressedHotkeys.has(key)) return;
+            pressedHotkeys.add(key);
+            runHotkeyCommand(command).catch(console.error);
+          } else if (event.state === "Released") {
+            pressedHotkeys.delete(key);
+          }
+        });
+        registeredCommandHotkeys.push(hotkey);
+      } catch (error) {
+        failures.set(command.id, error?.message || String(error));
+      }
+    }
+
+    return failures;
+  };
+
   code.addEventListener("input", () => schedulePreview());
   exampleInput.addEventListener("input", () => schedulePreview());
   runButton.addEventListener("click", runPreview);
@@ -110,11 +169,14 @@
   resizer.addEventListener("pointercancel", stopResize);
   resizer.addEventListener("dblclick", () => {
     localStorage.removeItem(splitKey);
-    applySplit(0.56);
+    applySplit(0.64);
   });
 
   new MutationObserver(() => {
-    if (!editor.hidden) {
+    const open = !editor.hidden;
+    resizeForEditor(open);
+
+    if (open) {
       requestAnimationFrame(() => {
         applySplit(savedSplit());
         schedulePreview(0);
@@ -130,4 +192,6 @@
   window.addEventListener("resize", () => {
     if (!editor.hidden) applySplit(savedSplit());
   });
+
+  refreshCommandHotkeys().catch(console.error);
 })();
