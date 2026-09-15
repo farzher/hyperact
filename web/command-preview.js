@@ -160,22 +160,23 @@
   }
 
   const baseOpenPromptMode = openPromptMode;
-  openPromptMode = async function (command, target, selectAll) {
+  openPromptMode = async function (command, target, selectAll, focus = 0) {
     promptInputLocked = true;
     input.readOnly = true;
     await hyperWindow.setFocusable(true);
     await hyperWindow.setAlwaysOnTop(false);
-    await baseOpenPromptMode(command, target, selectAll);
+    await baseOpenPromptMode(command, target, selectAll, focus);
     input.readOnly = true;
     waitForPromptModifiers();
   };
 
-  openDeferredPromptMode = async function (command, target) {
+  openDeferredPromptMode = async function (command, target, focus = 0) {
     if (!editor.hidden) closeCommandEditor();
 
     activeCommand = command;
     promptTarget = target;
     promptSelectAll = false;
+    promptFocus = focus;
     commandError = "";
     window.hyperactDeferredPromptLocked = true;
     window.hyperactKeepVisible = true;
@@ -190,9 +191,9 @@
   };
 
   const baseContinueDeferredHotkey = continueDeferredHotkey;
-  continueDeferredHotkey = async function (command, target) {
+  continueDeferredHotkey = async function (command, target, focus, run) {
     try {
-      return await baseContinueDeferredHotkey(command, target);
+      return await baseContinueDeferredHotkey(command, target, focus, run);
     } finally {
       try {
         await hyperWindow.setAlwaysOnTop(false);
