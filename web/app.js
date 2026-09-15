@@ -30,6 +30,7 @@ let commands = loadCommands();
 let activeCommand = null;
 let commandError = "";
 let registeredCommandHotkeys = [];
+const pressedCommandHotkeys = new Set();
 let promptTarget = null;
 let promptSelectAll = false;
 let editingCommandId = "";
@@ -554,6 +555,7 @@ async function refreshCommandHotkeys() {
   }
 
   registeredCommandHotkeys = [];
+  pressedCommandHotkeys.clear();
   const seen = new Set(["alt+space"]);
 
   for (const command of commands) {
@@ -569,7 +571,13 @@ async function refreshCommandHotkeys() {
 
     try {
       await globalShortcut.register(hotkey, event => {
-        if (event.state === "Released") runHotkeyCommand(command).catch(console.error);
+        if (event.state === "Pressed") {
+          if (pressedCommandHotkeys.has(key)) return;
+          pressedCommandHotkeys.add(key);
+          runHotkeyCommand(command).catch(console.error);
+        } else if (event.state === "Released") {
+          pressedCommandHotkeys.delete(key);
+        }
       });
       registeredCommandHotkeys.push(hotkey);
     } catch (error) {
