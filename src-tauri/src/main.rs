@@ -255,39 +255,72 @@ console.log = (...args) => process.stderr.write(args.join(' ') + '\n');
 }
 
 #[tauri::command]
-fn run_hotkey_command(code: String, input_mode: String) -> Result<bool, String> {
+fn run_hotkey_command(
+    code: String,
+    input_mode: String,
+    missing_input: String,
+    output_mode: String,
+) -> Result<Vec<u64>, String> {
     #[cfg(target_os = "windows")]
     {
         use std::{thread, time::Duration};
 
         windows_text::wait_for_modifiers_release();
+        let target = windows_text::foreground_window()?;
         let original_clipboard = windows_text::read_clipboard_text().ok().flatten();
         let mut captured = windows_text::copy_selection()?;
+        let mut selected_all = false;
 
         if captured.is_none() && input_mode != "selected" {
             windows_text::select_all();
-            thread::sleep(Duration::from_millis(25));
+            selected_all = true;
+            thread::sleep(Duration::from_millis(10));
             captured = windows_text::copy_selection()?;
         }
 
+        if let Some(original) = original_clipboard.as_deref() {
+            let _ = windows_text::write_clipboard_text(original);
+        }
+
         let Some(input) = captured else {
-            return Ok(false);
+            if missing_input == "prompt" {
+                return Ok(vec![target, u64::from(selected_all)]);
+            }
+            return Ok(Vec::new());
         };
 
-        if let Some(original) = original_clipboard.as_deref() {
-            let _ = windows_text::write_clipboard_text(original);
-        }
-
         let output = run_node_command(code, input)?;
-        windows_text::write_clipboard_text(&output)?;
-        windows_text::paste();
-        thread::sleep(Duration::from_millis(100));
+        windows_text::insert_result(
+            target,
+            &output,
+            &output_mode,
+            selected_all,
+            original_clipboard.as_deref(),
+        )?;
+        return Ok(Vec::new());
+    }
 
-        if let Some(original) = original_clipboard.as_deref() {
-            let _ = windows_text::write_clipboard_text(original);
-        }
+    #[cfg(not(target_os = "windows"))]
+    Err("Focused-text hotkeys are only available on Windows".into())
+}
 
-        return Ok(true);
+#[tauri::command]
+fn submit_prompt_result(
+    target: u64,
+    output: String,
+    output_mode: String,
+    select_all: bool,
+) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        let original_clipboard = windows_text::read_clipboard_text().ok().flatten();
+        return windows_text::insert_result(
+            target,
+            &output,
+            &output_mode,
+            select_all,
+            original_clipboard.as_deref(),
+        );
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -306,7 +339,9 @@ mod windows_text {
 
     const CF_UNICODETEXT: u32 = 13;
     const GMEM_MOVEABLE: u32 = 0x0002;
+    const INPUT_KEYBOARD: u32 = 1;
     const KEYEVENTF_KEYUP: u32 = 0x0002;
+    const KEYEVENTF_UNICODE: u32 = 0x0004;
     const VK_CONTROL: u8 = 0x11;
     const VK_SHIFT: i32 = 0x10;
     const VK_MENU: i32 = 0x12;
@@ -315,6 +350,39 @@ mod windows_text {
     const VK_A: u8 = 0x41;
     const VK_C: u8 = 0x43;
     const VK_V: u8 = 0x56;
+
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    struct MouseInput {
+        dx: i32,
+        dy: i32,
+        mouse_data: u32,
+        flags: u32,
+        time: u32,
+        extra_info: usize,
+    }
+
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    struct KeyboardInput {
+        virtual_key: u16,
+        scan_code: u16,
+        flags: u32,
+        time: u32,
+        extra_info: usize,
+    }
+
+    #[repr(C)]
+    union InputData {
+        mouse: MouseInput,
+        keyboard: KeyboardInput,
+    }
+
+    #[repr(C)]
+    struct Input {
+        kind: u32,
+        data: InputData,
+    }
 
     #[link(name = "user32")]
     unsafe extern "system" {
@@ -326,6 +394,9 @@ mod windows_text {
         fn IsClipboardFormatAvailable(format: u32) -> i32;
         fn GetClipboardSequenceNumber() -> u32;
         fn GetAsyncKeyState(key: i32) -> i16;
+        fn GetForegroundWindow() -> *mut c_void;
+        fn SetForegroundWindow(window: *mut c_void) -> i32;
+        fn SendInput(count: u32, inputs: *const Input, size: i32) -> u32;
         fn keybd_event(key: u8, scan: u8, flags: u32, extra_info: usize);
     }
 
@@ -430,6 +501,24 @@ mod windows_text {
         }
     }
 
+    pub fn foreground_window() -> Result<u64, String> {
+        let window = unsafe { GetForegroundWindow() };
+        if window.is_null() {
+            Err("No foreground window is available".into())
+        } else {
+            Ok(window as usize as u64)
+        }
+    }
+
+    fn focus_window(target: u64) -> Result<(), String> {
+        let window = target as usize as *mut c_void;
+        if window.is_null() || unsafe { SetForegroundWindow(window) } == 0 {
+            return Err("Could not restore the original window".into());
+        }
+        thread::sleep(Duration::from_millis(25));
+        Ok(())
+    }
+
     pub fn select_all() {
         send_ctrl_key(VK_A);
     }
@@ -442,14 +531,90 @@ mod windows_text {
         let sequence = unsafe { GetClipboardSequenceNumber() };
         send_ctrl_key(VK_C);
 
-        for _ in 0..30 {
-            thread::sleep(Duration::from_millis(10));
+        for _ in 0..12 {
+            thread::sleep(Duration::from_millis(5));
             if unsafe { GetClipboardSequenceNumber() } != sequence {
                 return read_clipboard_text();
             }
         }
 
         Ok(None)
+    }
+
+    pub fn type_text(value: &str) -> Result<(), String> {
+        let mut inputs = Vec::with_capacity(value.encode_utf16().count() * 2);
+
+        for character in value.encode_utf16() {
+            inputs.push(Input {
+                kind: INPUT_KEYBOARD,
+                data: InputData {
+                    keyboard: KeyboardInput {
+                        virtual_key: 0,
+                        scan_code: character,
+                        flags: KEYEVENTF_UNICODE,
+                        time: 0,
+                        extra_info: 0,
+                    },
+                },
+            });
+            inputs.push(Input {
+                kind: INPUT_KEYBOARD,
+                data: InputData {
+                    keyboard: KeyboardInput {
+                        virtual_key: 0,
+                        scan_code: character,
+                        flags: KEYEVENTF_UNICODE | KEYEVENTF_KEYUP,
+                        time: 0,
+                        extra_info: 0,
+                    },
+                },
+            });
+        }
+
+        if inputs.is_empty() {
+            return Ok(());
+        }
+
+        let sent = unsafe {
+            SendInput(
+                inputs.len() as u32,
+                inputs.as_ptr(),
+                std::mem::size_of::<Input>() as i32,
+            )
+        };
+
+        if sent == inputs.len() as u32 {
+            Ok(())
+        } else {
+            Err("Windows could not type the command result".into())
+        }
+    }
+
+    pub fn insert_result(
+        target: u64,
+        value: &str,
+        output_mode: &str,
+        select_all_first: bool,
+        original_clipboard: Option<&str>,
+    ) -> Result<(), String> {
+        focus_window(target)?;
+
+        if select_all_first {
+            select_all();
+            thread::sleep(Duration::from_millis(10));
+        }
+
+        if output_mode == "paste" {
+            write_clipboard_text(value)?;
+            paste();
+            thread::sleep(Duration::from_millis(80));
+            if let Some(original) = original_clipboard {
+                let _ = write_clipboard_text(original);
+            }
+            Ok(())
+        } else {
+            type_text(value)
+        }
     }
 
     pub fn wait_for_modifiers_release() {
@@ -557,7 +722,8 @@ fn main() {
             launch_start_app,
             run_system_action,
             run_node_command,
-            run_hotkey_command
+            run_hotkey_command,
+            submit_prompt_result
         ])
         .run(tauri::generate_context!())
         .expect("error while running Hyperact");
