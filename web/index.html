@@ -157,7 +157,7 @@
     });
 
     hyperWindow.onFocusChanged(({ payload: focused }) => {
-      if (!focused) hyperWindow.hide();
+      if (!focused && !window.hyperactKeepVisible) hyperWindow.hide();
     });
   </script>
 </body>
