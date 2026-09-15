@@ -170,11 +170,23 @@
     waitForPromptModifiers();
   };
 
-  const baseOpenDeferredPromptMode = openDeferredPromptMode;
   openDeferredPromptMode = async function (command, target) {
-    await hyperWindow.setFocusable(false);
-    await hyperWindow.setAlwaysOnTop(true);
-    await baseOpenDeferredPromptMode(command, target);
+    if (!editor.hidden) closeCommandEditor();
+
+    activeCommand = command;
+    promptTarget = target;
+    promptSelectAll = false;
+    commandError = "";
+    window.hyperactDeferredPromptLocked = true;
+    window.hyperactKeepVisible = true;
+    input.disabled = false;
+    input.readOnly = true;
+    input.value = "";
+    input.placeholder = `${command.name} input…`;
+    selected = 0;
+    render();
+
+    await invoke("show_launcher_no_activate");
   };
 
   const baseContinueDeferredHotkey = continueDeferredHotkey;
@@ -184,7 +196,6 @@
     } finally {
       try {
         await hyperWindow.setAlwaysOnTop(false);
-        await hyperWindow.setFocusable(true);
       } catch (error) {
         console.error(error);
       }
