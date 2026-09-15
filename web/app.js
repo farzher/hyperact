@@ -8,6 +8,7 @@ const commandSelect = document.querySelector("#command-select");
 const commandNew = document.querySelector("#command-new");
 const commandName = document.querySelector("#command-name");
 const commandHotkey = document.querySelector("#command-hotkey");
+const commandInputMode = document.querySelector("#command-input-mode");
 const commandCode = document.querySelector("#command-code");
 const commandStatus = document.querySelector("#command-status");
 const commandDelete = document.querySelector("#command-delete");
@@ -26,7 +27,6 @@ let commands = loadCommands();
 let activeCommand = null;
 let commandError = "";
 let registeredCommandHotkeys = [];
-let scrollTimer;
 
 const systemActions = [
   { icon: "▣", title: "File Explorer", detail: "Windows", id: "explorer", keywords: "files folders", default: true },
@@ -63,7 +63,13 @@ function loadCommands() {
 
     return saved
       .filter(command => command && command.id && command.name && typeof command.code === "string")
-      .map(({ id, name, hotkey = "", code }) => ({ id, name, hotkey, code }));
+      .map(({ id, name, hotkey = "", inputMode = "focused", code }) => ({
+        id,
+        name,
+        hotkey,
+        inputMode: inputMode === "selected" ? "selected" : "focused",
+        code
+      }));
   } catch {
     return [];
   }
@@ -298,6 +304,17 @@ async function runCommand(command, value) {
   }
 }
 
+async function runHotkeyCommand(command) {
+  try {
+    await invoke("run_hotkey_command", {
+      code: command.code,
+      inputMode: command.inputMode
+    });
+  } catch (error) {
+    console.error(error);
+  }
+}
+
 async function hideLauncher() {
   await currentWindow.hide();
 }
@@ -461,7 +478,7 @@ async function refreshCommandHotkeys() {
 
     try {
       await globalShortcut.register(hotkey, event => {
-        if (event.state === "Pressed") openCommandMode(command).catch(console.error);
+        if (event.state === "Released") runHotkeyCommand(command).catch(console.error);
       });
       registeredCommandHotkeys.push(hotkey);
     } catch (error) {
@@ -470,22 +487,6 @@ async function refreshCommandHotkeys() {
   }
 
   return failures;
-}
-
-async function openCommandMode(command) {
-  if (!commandEditor.hidden) closeCommandEditor();
-
-  activeCommand = command;
-  commandError = "";
-  input.disabled = false;
-  input.value = "";
-  input.placeholder = `${command.name} input…`;
-  selected = 0;
-  render();
-
-  await currentWindow.show();
-  await currentWindow.setFocus();
-  input.focus();
 }
 
 function populateCommandSelect(selectedId = "") {
@@ -511,6 +512,7 @@ function loadEditorCommand(id) {
   commandSelect.value = command?.id || "";
   commandName.value = command?.name || "";
   commandHotkey.value = command?.hotkey || "";
+  commandInputMode.value = command?.inputMode === "selected" ? "selected" : "focused";
   commandCode.value = command?.code || "return input;";
   commandDelete.hidden = !command;
   commandStatus.textContent = "";
@@ -549,6 +551,7 @@ async function saveEditorCommand() {
   const name = commandName.value.trim();
   const code = commandCode.value.trim();
   const hotkey = normalizeHotkey(commandHotkey.value);
+  const inputMode = commandInputMode.value === "selected" ? "selected" : "focused";
 
   if (!name) {
     commandStatus.textContent = "Give the command a name.";
@@ -564,7 +567,7 @@ async function saveEditorCommand() {
 
   const existing = commands.find(command => command.id === commandSelect.value);
   const id = existing?.id || crypto.randomUUID();
-  const next = { id, name, hotkey, code };
+  const next = { id, name, hotkey, inputMode, code };
 
   if (existing) {
     commands = commands.map(command => command.id === id ? next : command);
@@ -600,12 +603,6 @@ input.addEventListener("input", () => {
   selected = 0;
   commandError = "";
   render();
-});
-
-actions.addEventListener("scroll", () => {
-  actions.classList.add("scrolling");
-  clearTimeout(scrollTimer);
-  scrollTimer = setTimeout(() => actions.classList.remove("scrolling"), 850);
 });
 
 dragHandle.addEventListener("mousedown", event => {
