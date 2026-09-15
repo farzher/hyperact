@@ -38,6 +38,14 @@
         <input id="command-hotkey" type="text" autocomplete="off" spellcheck="false" placeholder="Ctrl+Shift+H">
       </label>
 
+      <label class="editor-field">
+        <span>Hotkey input</span>
+        <select id="command-input-mode">
+          <option value="focused">Focused text</option>
+          <option value="selected">Selected text only</option>
+        </select>
+      </label>
+
       <label class="editor-field editor-code-field">
         <span>Node.js</span>
         <textarea id="command-code" spellcheck="false" placeholder="return input;"></textarea>
