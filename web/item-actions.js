@@ -6,12 +6,170 @@
   let preferences = loadPreferences();
   let menuState = null;
   let settingMode = "";
-  let menuQuery = "";
+  let menuSelected = 0;
   let appHotkeysRefreshed = false;
 
   const style = document.createElement("style");
-  style.textContent = `.action-edit { display: none !important; }`;
+  style.textContent = `
+    .action-edit { display: none !important; }
+
+    .item-actions-popover {
+      position: absolute;
+      z-index: 50;
+      top: 76px;
+      right: 14px;
+      width: min(350px, calc(100% - 28px));
+      overflow: hidden;
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      border-radius: 10px;
+      background: #252529;
+      box-shadow: 0 18px 48px rgba(0, 0, 0, 0.48), 0 2px 8px rgba(0, 0, 0, 0.28);
+    }
+
+    .item-actions-popover[hidden] { display: none; }
+
+    .item-actions-head {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 31px;
+      padding: 7px 10px 5px;
+      color: #9a9aa2;
+      font-size: 11px;
+      font-weight: 560;
+    }
+
+    .item-actions-title {
+      min-width: 0;
+      flex: 1;
+      overflow: hidden;
+      color: #aaaab2;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .item-actions-hint {
+      overflow: hidden;
+      color: #777780;
+      font-size: 10px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .item-actions-list {
+      max-height: 236px;
+      overflow: hidden auto;
+      padding: 0 6px 5px;
+      scrollbar-width: none;
+    }
+
+    .item-actions-list::-webkit-scrollbar { display: none; }
+
+    .item-actions-row {
+      width: 100%;
+      min-height: 35px;
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      border: 0;
+      border-radius: 6px;
+      padding: 4px 7px;
+      background: transparent;
+      color: #e5e5e8;
+      font: inherit;
+      text-align: left;
+      cursor: default;
+    }
+
+    .item-actions-row:hover,
+    .item-actions-row.selected {
+      background: rgba(255, 255, 255, 0.085);
+    }
+
+    .item-actions-icon {
+      width: 18px;
+      flex: 0 0 18px;
+      display: grid;
+      place-items: center;
+      color: #b9b0e8;
+      font-size: 13px;
+    }
+
+    .item-actions-label {
+      min-width: 0;
+      flex: 1;
+      overflow: hidden;
+      font-size: 12.5px;
+      font-weight: 550;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .item-actions-detail {
+      max-width: 145px;
+      overflow: hidden;
+      color: #8a8a93;
+      font-size: 10.5px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .item-actions-search-wrap {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      height: 35px;
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+      padding: 0 10px;
+      color: #777780;
+    }
+
+    .item-actions-search {
+      min-width: 0;
+      flex: 1;
+      border: 0;
+      outline: 0;
+      padding: 0;
+      background: transparent;
+      color: #e6e6e9;
+      font: inherit;
+      font-size: 12px;
+      user-select: text;
+    }
+
+    .item-actions-search::placeholder { color: #777780; }
+  `;
   document.head.append(style);
+
+  const popover = document.createElement("div");
+  popover.className = "item-actions-popover";
+  popover.hidden = true;
+
+  const menuHead = document.createElement("div");
+  menuHead.className = "item-actions-head";
+  const menuTitle = document.createElement("span");
+  menuTitle.className = "item-actions-title";
+  const menuHint = document.createElement("span");
+  menuHint.className = "item-actions-hint";
+  menuHead.append(menuTitle, menuHint);
+
+  const menuList = document.createElement("div");
+  menuList.className = "item-actions-list";
+  menuList.setAttribute("role", "listbox");
+
+  const searchWrap = document.createElement("div");
+  searchWrap.className = "item-actions-search-wrap";
+  const searchIcon = document.createElement("span");
+  searchIcon.textContent = "⌕";
+  const menuInput = document.createElement("input");
+  menuInput.className = "item-actions-search";
+  menuInput.type = "text";
+  menuInput.autocomplete = "off";
+  menuInput.spellcheck = false;
+  searchWrap.append(searchIcon, menuInput);
+
+  popover.append(menuHead, menuList, searchWrap);
+  palette.append(popover);
 
   function loadPreferences() {
     try {
@@ -58,24 +216,35 @@
     return item?.itemKey ? preference(item.itemKey).hotkey || "" : "";
   }
 
+  function decorateMetadata(item) {
+    if (!item?.itemKey) return item;
+    const meta = [];
+    const alias = aliasFor(item);
+    const hotkey = hotkeyFor(item);
+    if (alias) meta.push(`@${alias}`);
+    if (hotkey) meta.push(hotkey);
+    item.detail = meta.join(" · ");
+    return item;
+  }
+
   const baseNativeItem = nativeItem;
   nativeItem = function (item, score = 0) {
-    return {
+    return decorateMetadata({
       ...baseNativeItem(item, score),
       itemKey: systemKey(item),
       itemType: "system",
       itemSource: item
-    };
+    });
   };
 
   const baseAppItem = appItem;
   appItem = function (app, score) {
-    return {
+    return decorateMetadata({
       ...baseAppItem(app, score),
       itemKey: appKey(app),
       itemType: "app",
       itemSource: app
-    };
+    });
   };
 
   function annotate(item) {
@@ -84,7 +253,7 @@
       item.itemType = "command";
       item.itemSource = item.command;
     }
-    return item;
+    return decorateMetadata(item);
   }
 
   function useCommandByName(command) {
@@ -105,10 +274,10 @@
   }
 
   function genericCommandResult(command, value) {
-    return {
+    return decorateMetadata({
       icon: "N",
       title: command.name,
-      detail: command.hotkey || "",
+      detail: "",
       category: "Text Action",
       score: 8,
       command,
@@ -117,14 +286,14 @@
       itemType: "command",
       itemSource: command,
       run: () => runCommand(command, value)
-    };
+    });
   }
 
   function aliasCommandResult(command, score) {
-    return {
+    return decorateMetadata({
       icon: "N",
       title: command.name,
-      detail: command.hotkey || "",
+      detail: "",
       category: "Command",
       score,
       command,
@@ -133,67 +302,11 @@
       itemType: "command",
       itemSource: command,
       run: () => useCommandByName(command)
-    };
-  }
-
-  function menuAction(title, detail, run, score = 0) {
-    return {
-      icon: "›",
-      title,
-      detail,
-      category: "Action",
-      score,
-      menuAction: true,
-      run
-    };
-  }
-
-  function buildMenuActions(value) {
-    const target = menuState.item;
-    const query = value.trim();
-    const options = [
-      menuAction(target.commandMode === "input" ? "Run" : "Open", "", () => {
-        const run = target.run;
-        closeMenu(false);
-        run();
-      }, 0)
-    ];
-
-    if (target.itemKey) {
-      options.push(
-        menuAction("Set hotkey", hotkeyFor(target) || "None", () => beginSetting("hotkey"), 1),
-        menuAction("Set alias", aliasFor(target) || "None", () => beginSetting("alias"), 2)
-      );
-    }
-
-    if (target.command) {
-      options.push(menuAction("Edit command", "", () => {
-        const id = target.command.id;
-        closeMenu(false);
-        openCommandEditor(id);
-      }, 3));
-    }
-
-    if (!query) return options;
-    return options
-      .map(item => ({ ...item, score: matchScore(`${item.title} ${item.detail}`, query) }))
-      .filter(item => Number.isFinite(item.score))
-      .sort((a, b) => a.score - b.score);
-  }
-
-  function buildSettingActions(value) {
-    if (settingMode === "alias") {
-      return [menuAction("Save alias", value.trim() || "Clear alias", () => saveAlias(), 0)];
-    }
-    return [menuAction("Press a shortcut", "Backspace clears · Esc cancels", () => {}, 0)];
+    });
   }
 
   const baseBuildActions = buildActions;
   buildActions = function (value) {
-    if (menuState) {
-      return settingMode ? buildSettingActions(value) : buildMenuActions(value);
-    }
-
     const query = value.trim();
     const result = baseBuildActions(value).map(annotate);
     if (!query || activeCommand) return result;
@@ -201,19 +314,20 @@
     const present = new Set(result.map(item => item.itemKey).filter(Boolean));
 
     for (const command of commands) {
+      const key = commandKey(command);
       const nameScore = matchScore(command.name, query);
-      const alias = preference(commandKey(command)).alias || "";
+      const alias = preference(key).alias || "";
       const aliasScore = alias ? matchScore(alias, query) : Infinity;
 
-      if (!present.has(commandKey(command)) && Number.isFinite(aliasScore)) {
+      if (!present.has(key) && Number.isFinite(aliasScore)) {
         result.push(aliasCommandResult(command, aliasScore + 0.04));
-        present.add(commandKey(command));
+        present.add(key);
         continue;
       }
 
-      if (!present.has(commandKey(command)) && !command.match && !Number.isFinite(nameScore)) {
+      if (!present.has(key) && !command.match && !Number.isFinite(nameScore)) {
         result.push(genericCommandResult(command, value));
-        present.add(commandKey(command));
+        present.add(key);
       }
     }
 
@@ -237,79 +351,208 @@
     return result;
   };
 
-  const baseDetectKind = detectKind;
-  detectKind = function (value) {
-    if (menuState) return settingMode === "alias" ? "Alias" : settingMode === "hotkey" ? "Hotkey" : "Actions";
-    return baseDetectKind(value);
-  };
-
-  function openMenu(item) {
-    if (!item || item.menuAction) return;
-    menuState = {
-      item: { ...item },
-      previousInput: input.value,
-      previousPlaceholder: input.placeholder
-    };
-    settingMode = "";
-    menuQuery = "";
-    input.readOnly = false;
-    input.value = "";
-    input.placeholder = `${item.title} actions…`;
-    selected = 0;
-    render();
-    input.focus();
+  function primaryLabel(item) {
+    if (item.commandMode === "input") return "Run";
+    if (item.itemType === "app") return "Open";
+    if (item.commandMode === "search") return "Use";
+    return "Run";
   }
 
-  function closeMenu(restore = true) {
+  function menuOptions() {
+    const target = menuState.item;
+    const options = [{
+      icon: "↵",
+      title: primaryLabel(target),
+      detail: "Enter",
+      run: () => {
+        const run = target.run;
+        closeMenu(false);
+        run();
+      }
+    }];
+
+    if (target.itemKey) {
+      options.push(
+        {
+          icon: "⌨",
+          title: "Set Hotkey",
+          detail: hotkeyFor(target) || "None",
+          run: () => beginSetting("hotkey")
+        },
+        {
+          icon: "@",
+          title: "Set Alias",
+          detail: aliasFor(target) || "None",
+          run: () => beginSetting("alias")
+        }
+      );
+    }
+
+    if (target.command) {
+      options.push({
+        icon: "⚙",
+        title: "Edit Command",
+        detail: "",
+        run: () => {
+          const id = target.command.id;
+          closeMenu(false);
+          openCommandEditor(id);
+        }
+      });
+    }
+
+    const query = menuInput.value.trim();
+    if (!query || settingMode) return options;
+    return options
+      .map(option => ({
+        ...option,
+        score: matchScore(`${option.title} ${option.detail}`, query)
+      }))
+      .filter(option => Number.isFinite(option.score))
+      .sort((a, b) => a.score - b.score);
+  }
+
+  function renderMenu() {
     if (!menuState) return;
-    const previous = menuState;
+
+    menuTitle.textContent = settingMode === "alias"
+      ? `Alias · ${menuState.item.title}`
+      : settingMode === "hotkey"
+        ? `Hotkey · ${menuState.item.title}`
+        : menuState.item.title;
+
+    if (settingMode === "alias") {
+      menuHint.textContent = "Enter to save";
+      menuList.replaceChildren();
+      const row = document.createElement("button");
+      row.type = "button";
+      row.className = "item-actions-row selected";
+      row.innerHTML = `<span class="item-actions-icon">@</span><span class="item-actions-label">${menuInput.value.trim() ? "Save Alias" : "Clear Alias"}</span>`;
+      row.addEventListener("click", saveAlias);
+      menuList.append(row);
+      return;
+    }
+
+    if (settingMode === "hotkey") {
+      menuHint.textContent = "Press shortcut";
+      menuList.replaceChildren();
+      const row = document.createElement("div");
+      row.className = "item-actions-row selected";
+      const icon = document.createElement("span");
+      icon.className = "item-actions-icon";
+      icon.textContent = "⌨";
+      const label = document.createElement("span");
+      label.className = "item-actions-label";
+      label.textContent = menuInput.value || "Press a shortcut";
+      const detail = document.createElement("span");
+      detail.className = "item-actions-detail";
+      detail.textContent = "Backspace clears";
+      row.append(icon, label, detail);
+      menuList.append(row);
+      return;
+    }
+
+    menuHint.textContent = "Ctrl K";
+    const options = menuOptions();
+    menuSelected = Math.min(menuSelected, Math.max(0, options.length - 1));
+    menuList.replaceChildren();
+
+    if (!options.length) {
+      const empty = document.createElement("div");
+      empty.className = "item-actions-hint";
+      empty.style.padding = "12px 10px 16px";
+      empty.textContent = "No actions";
+      menuList.append(empty);
+      return;
+    }
+
+    options.forEach((option, index) => {
+      const row = document.createElement("button");
+      row.type = "button";
+      row.className = `item-actions-row${index === menuSelected ? " selected" : ""}`;
+
+      const icon = document.createElement("span");
+      icon.className = "item-actions-icon";
+      icon.textContent = option.icon;
+      const label = document.createElement("span");
+      label.className = "item-actions-label";
+      label.textContent = option.title;
+      const detail = document.createElement("span");
+      detail.className = "item-actions-detail";
+      detail.textContent = option.detail;
+
+      row.append(icon, label, detail);
+      row.addEventListener("mouseenter", () => {
+        menuSelected = index;
+        renderMenu();
+      });
+      row.addEventListener("click", option.run);
+      menuList.append(row);
+    });
+  }
+
+  function openMenu(item) {
+    if (!item) return;
+    menuState = { item: { ...item } };
+    settingMode = "";
+    menuSelected = 0;
+    menuInput.readOnly = false;
+    menuInput.value = "";
+    menuInput.placeholder = "Search for actions…";
+    popover.hidden = false;
+    renderMenu();
+    updateFooter();
+    menuInput.focus();
+  }
+
+  function closeMenu(focusMain = true) {
+    if (!menuState) return;
     menuState = null;
     settingMode = "";
-    menuQuery = "";
-    input.readOnly = false;
-    if (restore) {
-      input.value = previous.previousInput;
-      input.placeholder = previous.previousPlaceholder;
-      selected = 0;
-      render();
-      input.focus();
-    }
+    menuSelected = 0;
+    menuInput.readOnly = false;
+    menuInput.value = "";
+    popover.hidden = true;
+    updateFooter();
+    if (focusMain) input.focus();
   }
 
   function returnToMenu() {
     settingMode = "";
-    input.readOnly = false;
-    input.value = menuQuery;
-    input.placeholder = `${menuState.item.title} actions…`;
-    selected = 0;
+    menuSelected = 0;
+    menuInput.readOnly = false;
+    menuInput.value = "";
+    menuInput.placeholder = "Search for actions…";
     render();
-    input.focus();
+    renderMenu();
+    updateFooter();
+    menuInput.focus();
   }
 
   function beginSetting(kind) {
     settingMode = kind;
-    menuQuery = input.value;
-    selected = 0;
+    menuSelected = 0;
 
     if (kind === "alias") {
-      input.readOnly = false;
-      input.value = aliasFor(menuState.item);
-      input.placeholder = `Alias for ${menuState.item.title}…`;
-      render();
-      input.focus();
-      input.select();
+      menuInput.readOnly = false;
+      menuInput.value = aliasFor(menuState.item);
+      menuInput.placeholder = "Type alias…";
+      renderMenu();
+      menuInput.focus();
+      menuInput.select();
     } else {
-      input.readOnly = true;
-      input.value = hotkeyFor(menuState.item);
-      input.placeholder = "Press shortcut…";
-      render();
-      input.focus();
+      menuInput.readOnly = true;
+      menuInput.value = hotkeyFor(menuState.item);
+      menuInput.placeholder = "Press shortcut…";
+      renderMenu();
+      menuInput.focus();
     }
+    updateFooter();
   }
 
   function saveAlias() {
-    const target = menuState.item;
-    setPreference(target.itemKey, "alias", input.value.trim());
+    if (!menuState?.item?.itemKey) return;
+    setPreference(menuState.item.itemKey, "alias", menuInput.value.trim());
     returnToMenu();
   }
 
@@ -421,16 +664,14 @@
   function updateFooter() {
     if (footer.hidden || !commandEditor.hidden) return;
 
-    if (settingMode === "hotkey") {
-      footer.replaceChildren(footerPart("keys", "set hotkey"), footerPart("esc", "back"));
-      return;
-    }
-    if (settingMode === "alias") {
-      footer.replaceChildren(footerPart("↵", "save"), footerPart("esc", "back"));
-      return;
-    }
     if (menuState) {
-      footer.replaceChildren(footerPart("↵", "select"), footerPart("esc", "back"));
+      if (settingMode === "hotkey") {
+        footer.replaceChildren(footerPart("keys", "set hotkey"), footerPart("esc", "back"));
+      } else if (settingMode === "alias") {
+        footer.replaceChildren(footerPart("↵", "save"), footerPart("esc", "back"));
+      } else {
+        footer.replaceChildren(footerPart("↵", "select"), footerPart("esc", "close actions"));
+      }
       return;
     }
 
@@ -453,7 +694,7 @@
 
     items.forEach((item, index) => {
       const row = actions.children[index];
-      if (!row || item.menuAction) return;
+      if (!row) return;
       row.addEventListener("contextmenu", event => {
         event.preventDefault();
         event.stopPropagation();
@@ -476,40 +717,49 @@
     updateFooter();
   };
 
-  document.addEventListener("keydown", event => {
-    if (!commandEditor.hidden) return;
+  function activateSelectedMenuAction() {
+    const options = menuOptions();
+    options[menuSelected]?.run();
+  }
+
+  menuInput.addEventListener("input", () => {
+    menuSelected = 0;
+    renderMenu();
+  });
+
+  menuInput.addEventListener("keydown", event => {
+    if (!menuState) return;
 
     if (settingMode === "hotkey") {
+      event.preventDefault();
+      event.stopPropagation();
+
       if (event.key === "Escape") {
-        event.preventDefault();
-        event.stopImmediatePropagation();
         returnToMenu();
         return;
       }
-
       if (event.key === "Backspace" || event.key === "Delete") {
-        event.preventDefault();
-        event.stopImmediatePropagation();
         setHotkey(menuState.item, "").then(returnToMenu).catch(console.error);
         return;
       }
 
       const hotkey = shortcutFromEvent(event);
-      if (!hotkey) return;
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      if (reservedHotkeys.has(hotkey.toLowerCase())) return;
-      input.value = hotkey;
+      if (!hotkey || reservedHotkeys.has(hotkey.toLowerCase())) return;
+      menuInput.value = hotkey;
+      renderMenu();
       setHotkey(menuState.item, hotkey).then(success => {
         if (success) returnToMenu();
-        else input.value = hotkey;
+        else {
+          menuHint.textContent = "Already in use";
+          menuInput.focus();
+        }
       }).catch(console.error);
       return;
     }
 
-    if (menuState && event.key === "Escape") {
+    if (event.key === "Escape") {
       event.preventDefault();
-      event.stopImmediatePropagation();
+      event.stopPropagation();
       if (settingMode) returnToMenu();
       else closeMenu(true);
       return;
@@ -517,22 +767,51 @@
 
     if (settingMode === "alias" && event.key === "Enter") {
       event.preventDefault();
-      event.stopImmediatePropagation();
+      event.stopPropagation();
       saveAlias();
       return;
     }
 
-    if (event.ctrlKey && !event.altKey && !event.metaKey && event.key.toLowerCase() === "k") {
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
-      event.stopImmediatePropagation();
-      if (menuState) {
-        closeMenu(true);
-        return;
-      }
-      const item = items[selected];
-      if (item && !item.menuAction) openMenu(item);
+      event.stopPropagation();
+      const count = menuOptions().length;
+      if (!count) return;
+      menuSelected = (menuSelected + (event.key === "ArrowDown" ? 1 : -1) + count) % count;
+      renderMenu();
+      menuList.children[menuSelected]?.scrollIntoView({ block: "nearest" });
+      return;
     }
+
+    if (event.key === "Enter") {
+      event.preventDefault();
+      event.stopPropagation();
+      activateSelectedMenuAction();
+    }
+  });
+
+  document.addEventListener("mousedown", event => {
+    if (!menuState || popover.contains(event.target)) return;
+    closeMenu(false);
   }, true);
+
+  document.addEventListener("keydown", event => {
+    if (!commandEditor.hidden) return;
+    if (!event.ctrlKey || event.altKey || event.metaKey || event.key.toLowerCase() !== "k") return;
+
+    event.preventDefault();
+    event.stopImmediatePropagation();
+
+    if (menuState) {
+      closeMenu(true);
+      return;
+    }
+
+    const item = items[selected];
+    if (item) openMenu(item);
+  }, true);
+
+  window.addEventListener("hyperact-blur", () => closeMenu(false));
 
   render();
   refreshCommandHotkeys().catch(console.error);
