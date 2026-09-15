@@ -175,52 +175,6 @@
     event.stopImmediatePropagation();
   }, true);
 
-  const pressedHotkeys = new Set();
-
-  refreshCommandHotkeys = async function () {
-    const failures = new Map();
-    if (!globalShortcut) return failures;
-
-    for (const hotkey of registeredCommandHotkeys) {
-      try {
-        await globalShortcut.unregister(hotkey);
-      } catch {}
-    }
-
-    registeredCommandHotkeys = [];
-    pressedHotkeys.clear();
-    const seen = new Set(["alt+space"]);
-
-    for (const command of commands) {
-      const hotkey = normalizeHotkey(command.hotkey || "");
-      if (!hotkey) continue;
-
-      const key = hotkey.toLowerCase();
-      if (seen.has(key)) {
-        failures.set(command.id, "Hotkey is already in use by Hyperact");
-        continue;
-      }
-      seen.add(key);
-
-      try {
-        await globalShortcut.register(hotkey, event => {
-          if (event.state === "Pressed") {
-            if (pressedHotkeys.has(key)) return;
-            pressedHotkeys.add(key);
-            runHotkeyCommand(command).catch(console.error);
-          } else if (event.state === "Released") {
-            pressedHotkeys.delete(key);
-          }
-        });
-        registeredCommandHotkeys.push(hotkey);
-      } catch (error) {
-        failures.set(command.id, error?.message || String(error));
-      }
-    }
-
-    return failures;
-  };
-
   code.addEventListener("input", () => schedulePreview());
   exampleInput.addEventListener("input", () => schedulePreview());
   runButton.addEventListener("click", runPreview);
@@ -254,6 +208,4 @@
   window.addEventListener("resize", () => {
     if (!editor.hidden) applySplit(savedSplit());
   });
-
-  setTimeout(() => refreshCommandHotkeys().catch(console.error), 100);
 })();
