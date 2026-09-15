@@ -8,9 +8,7 @@ const commandSelect = document.querySelector("#command-select");
 const commandNew = document.querySelector("#command-new");
 const commandName = document.querySelector("#command-name");
 const commandHotkey = document.querySelector("#command-hotkey");
-const commandRuntime = document.querySelector("#command-runtime");
 const commandCode = document.querySelector("#command-code");
-const commandHelp = document.querySelector("#command-help");
 const commandStatus = document.querySelector("#command-status");
 const commandDelete = document.querySelector("#command-delete");
 const commandCancel = document.querySelector("#command-cancel");
@@ -18,7 +16,6 @@ const commandSave = document.querySelector("#command-save");
 const { invoke } = window.__TAURI__.core;
 const currentWindow = window.__TAURI__.window.getCurrentWindow();
 const globalShortcut = window.__TAURI__.globalShortcut;
-const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
 const defaultPlaceholder = "Search apps and actions…";
 const commandStorageKey = "hyperact.commands";
 
@@ -36,7 +33,7 @@ const systemActions = [
   { icon: "⚙", title: "Settings", detail: "Windows", id: "settings", keywords: "preferences system", default: true },
   { icon: ">_", title: "Windows Terminal", detail: "Windows", id: "terminal", keywords: "terminal powershell command prompt cmd", default: true },
   { icon: "▤", title: "Task Manager", detail: "Windows", id: "task-manager", keywords: "processes performance startup", default: true },
-  { icon: "↗", title: "Run", detail: "Windows", id: "run", keywords: "execute command", default: true },
+  { icon: "↗", title: "Run", detail: "Windows", id: "run", keywords: "execute command" },
   { icon: "⌂", title: "This PC", detail: "File Explorer", id: "this-pc", keywords: "computer drives disks" },
   { icon: "↓", title: "Downloads", detail: "Folder", id: "downloads", keywords: "download folder" },
   { icon: "▱", title: "Documents", detail: "Folder", id: "documents", keywords: "document folder" },
@@ -62,14 +59,11 @@ const systemActions = [
 function loadCommands() {
   try {
     const saved = JSON.parse(localStorage.getItem(commandStorageKey) || "[]");
-    return Array.isArray(saved)
-      ? saved
-        .filter(command => command && command.id && command.name && typeof command.code === "string")
-        .map(command => ({
-          ...command,
-          runtime: command.runtime === "node" ? "node" : "browser"
-        }))
-      : [];
+    if (!Array.isArray(saved)) return [];
+
+    return saved
+      .filter(command => command && command.id && command.name && typeof command.code === "string")
+      .map(({ id, name, hotkey = "", code }) => ({ id, name, hotkey, code }));
   } catch {
     return [];
   }
@@ -148,13 +142,9 @@ function appItem(app, score) {
   };
 }
 
-function commandRuntimeLabel(command) {
-  return command.runtime === "node" ? "Node.js" : "JavaScript";
-}
-
 function commandItem(command, score = 8) {
   return {
-    icon: command.runtime === "node" ? "N" : "ƒ",
+    icon: "N",
     title: command.name,
     detail: command.hotkey || "",
     category: "Command",
@@ -179,9 +169,9 @@ function buildActions(value) {
 
   if (activeCommand) {
     return [{
-      icon: activeCommand.runtime === "node" ? "N" : "ƒ",
+      icon: "N",
       title: `Run ${activeCommand.name}`,
-      detail: commandError || `${commandRuntimeLabel(activeCommand)} command`,
+      detail: commandError || "Node.js command",
       category: "Command",
       score: 0,
       run: () => runCommand(activeCommand, value)
@@ -238,8 +228,8 @@ function buildActions(value) {
   }
 
   for (const command of commands) {
-    const nameScore = matchScore(command.name, query);
-    matches.push(commandItem(command, Number.isFinite(nameScore) ? nameScore + 0.05 : 8));
+    const score = matchScore(command.name, query);
+    matches.push(commandItem(command, Number.isFinite(score) ? score + 0.05 : 8));
   }
 
   const commandManagerScore = matchScore("commands add command edit command custom automation", query);
@@ -298,19 +288,7 @@ async function runCommand(command, value) {
   commandError = "";
 
   try {
-    let output;
-
-    if (command.runtime === "node") {
-      output = await invoke("run_node_command", { code: command.code, input: value });
-    } else {
-      const execute = new AsyncFunction("input", `"use strict";\n${command.code}`);
-      output = await execute(value);
-    }
-
-    if (output === undefined) {
-      throw new Error("Command must return a value");
-    }
-
+    const output = await invoke("run_node_command", { code: command.code, input: value });
     activeCommand = null;
     input.placeholder = defaultPlaceholder;
     setInput(String(output));
@@ -424,7 +402,6 @@ function render() {
     category.textContent = item.category || "Action";
 
     row.append(icon, copy, category);
-
     row.addEventListener("mouseenter", () => {
       if (selected !== index) selectItem(index);
     });
@@ -460,7 +437,6 @@ function normalizeHotkey(value) {
 
 async function refreshCommandHotkeys() {
   const failures = new Map();
-
   if (!globalShortcut) return failures;
 
   for (const hotkey of registeredCommandHotkeys) {
@@ -530,24 +506,14 @@ function populateCommandSelect(selectedId = "") {
   commandSelect.value = selectedId;
 }
 
-function updateCommandHelp() {
-  if (commandRuntime.value === "node") {
-    commandHelp.innerHTML = "<code>input</code> is your text. Return the replacement. Node.js <code>require()</code>, built-ins, and <code>await</code> work.";
-  } else {
-    commandHelp.innerHTML = "<code>input</code> is your text. Return the replacement. Browser JavaScript and <code>await</code> work.";
-  }
-}
-
 function loadEditorCommand(id) {
   const command = commands.find(item => item.id === id);
   commandSelect.value = command?.id || "";
   commandName.value = command?.name || "";
   commandHotkey.value = command?.hotkey || "";
-  commandRuntime.value = command?.runtime === "node" ? "node" : "browser";
   commandCode.value = command?.code || "return input;";
   commandDelete.hidden = !command;
   commandStatus.textContent = "";
-  updateCommandHelp();
   commandName.focus();
   commandName.select();
 }
@@ -583,7 +549,6 @@ async function saveEditorCommand() {
   const name = commandName.value.trim();
   const code = commandCode.value.trim();
   const hotkey = normalizeHotkey(commandHotkey.value);
-  const runtime = commandRuntime.value === "node" ? "node" : "browser";
 
   if (!name) {
     commandStatus.textContent = "Give the command a name.";
@@ -592,14 +557,14 @@ async function saveEditorCommand() {
   }
 
   if (!code) {
-    commandStatus.textContent = "Add JavaScript for the command.";
+    commandStatus.textContent = "Add Node.js code for the command.";
     commandCode.focus();
     return;
   }
 
   const existing = commands.find(command => command.id === commandSelect.value);
   const id = existing?.id || crypto.randomUUID();
-  const next = { id, name, hotkey, runtime, code };
+  const next = { id, name, hotkey, code };
 
   if (existing) {
     commands = commands.map(command => command.id === id ? next : command);
@@ -648,7 +613,6 @@ dragHandle.addEventListener("mousedown", event => {
 });
 
 commandSelect.addEventListener("change", () => loadEditorCommand(commandSelect.value));
-commandRuntime.addEventListener("change", updateCommandHelp);
 commandNew.addEventListener("click", () => {
   populateCommandSelect();
   loadEditorCommand("");
@@ -658,7 +622,10 @@ commandSave.addEventListener("click", () => saveEditorCommand().catch(console.er
 commandDelete.addEventListener("click", () => deleteEditorCommand().catch(console.error));
 
 window.addEventListener("focus", () => {
-  if (commandEditor.hidden) input.focus();
+  if (commandEditor.hidden) {
+    input.focus();
+    input.select();
+  }
 });
 
 document.addEventListener("keydown", event => {
