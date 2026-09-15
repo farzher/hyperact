@@ -33,6 +33,8 @@ let registeredCommandHotkeys = [];
 const pressedCommandHotkeys = new Set();
 let promptTarget = null;
 let promptSelectAll = false;
+let promptFocus = 0;
+let deferredRun = 0;
 let editingCommandId = "";
 let editorStatusTimer;
 
@@ -347,8 +349,10 @@ async function runPromptCommand(stayOpen) {
 
     const target = promptTarget;
     const selectAll = promptSelectAll;
+    const focus = promptFocus;
     promptTarget = null;
     promptSelectAll = false;
+    promptFocus = 0;
     activeCommand = null;
     input.value = "";
     input.placeholder = defaultPlaceholder;
@@ -360,7 +364,8 @@ async function runPromptCommand(stayOpen) {
       target,
       output,
       outputMode: command.outputMode,
-      selectAll
+      selectAll,
+      focus
     });
   } catch (error) {
     commandError = error?.message || String(error);
@@ -368,12 +373,13 @@ async function runPromptCommand(stayOpen) {
   }
 }
 
-async function openPromptMode(command, target, selectAll) {
+async function openPromptMode(command, target, selectAll, focus = 0) {
   if (!commandEditor.hidden) closeCommandEditor();
 
   activeCommand = command;
   promptTarget = target;
   promptSelectAll = selectAll;
+  promptFocus = focus;
   commandError = "";
   input.disabled = false;
   input.value = "";
@@ -386,12 +392,13 @@ async function openPromptMode(command, target, selectAll) {
   input.focus();
 }
 
-async function openDeferredPromptMode(command, target) {
+async function openDeferredPromptMode(command, target, focus = 0) {
   if (!commandEditor.hidden) closeCommandEditor();
 
   activeCommand = command;
   promptTarget = target;
   promptSelectAll = false;
+  promptFocus = focus;
   commandError = "";
   window.hyperactDeferredPromptLocked = true;
   window.hyperactKeepVisible = true;
@@ -405,8 +412,39 @@ async function openDeferredPromptMode(command, target) {
   await currentWindow.show();
 }
 
-async function continueDeferredHotkey(command, target) {
-  while (window.hyperactDeferredPromptLocked && promptTarget === target) {
+function resetDeferredPrompt() {
+  deferredRun++;
+  window.hyperactDeferredPromptLocked = false;
+  window.hyperactKeepVisible = false;
+  input.readOnly = false;
+  promptTarget = null;
+  promptSelectAll = false;
+  promptFocus = 0;
+  activeCommand = null;
+  commandError = "";
+  input.value = "";
+  input.placeholder = defaultPlaceholder;
+  selected = 0;
+  render();
+}
+
+async function deferredIsActive(target, run) {
+  if (run !== deferredRun || !window.hyperactDeferredPromptLocked || promptTarget !== target) {
+    return false;
+  }
+
+  try {
+    if (!await currentWindow.isVisible()) {
+      if (run === deferredRun) resetDeferredPrompt();
+      return false;
+    }
+  } catch {}
+
+  return run === deferredRun && window.hyperactDeferredPromptLocked && promptTarget === target;
+}
+
+async function continueDeferredHotkey(command, target, focus, run) {
+  while (await deferredIsActive(target, run)) {
     try {
       if (!await invoke("non_ctrl_modifiers_held")) break;
     } catch {
@@ -415,7 +453,7 @@ async function continueDeferredHotkey(command, target) {
     await new Promise(resolve => setTimeout(resolve, 8));
   }
 
-  if (!window.hyperactDeferredPromptLocked || promptTarget !== target) return;
+  if (!await deferredIsActive(target, run)) return;
 
   try {
     const prompt = await invoke("resume_hotkey_command", {
@@ -423,32 +461,25 @@ async function continueDeferredHotkey(command, target) {
       inputMode: command.inputMode,
       missingInput: command.missingInput,
       outputMode: command.outputMode,
-      target
+      target,
+      focus
     });
 
-    if (!window.hyperactDeferredPromptLocked || promptTarget !== target) return;
+    if (!await deferredIsActive(target, run)) return;
 
     window.hyperactDeferredPromptLocked = false;
     input.readOnly = false;
 
     if (Array.isArray(prompt) && prompt.length >= 2) {
-      await openPromptMode(command, target, Boolean(prompt[1]));
+      await openPromptMode(command, target, Boolean(prompt[1]), prompt[3] || focus);
       window.hyperactKeepVisible = false;
       return;
     }
 
-    window.hyperactKeepVisible = false;
-    promptTarget = null;
-    promptSelectAll = false;
-    activeCommand = null;
-    commandError = "";
-    input.value = "";
-    input.placeholder = defaultPlaceholder;
-    selected = 0;
-    render();
+    resetDeferredPrompt();
     await currentWindow.hide();
   } catch (error) {
-    if (!window.hyperactDeferredPromptLocked || promptTarget !== target) return;
+    if (!await deferredIsActive(target, run)) return;
 
     window.hyperactDeferredPromptLocked = false;
     commandError = error?.message || String(error);
@@ -461,6 +492,8 @@ async function continueDeferredHotkey(command, target) {
 }
 
 async function runHotkeyCommand(command) {
+  if (window.hyperactDeferredPromptLocked) resetDeferredPrompt();
+
   try {
     const prompt = await invoke("run_hotkey_command", {
       code: command.code,
@@ -471,13 +504,15 @@ async function runHotkeyCommand(command) {
 
     if (Array.isArray(prompt) && prompt.length >= 3 && prompt[2] === 1) {
       const target = prompt[0];
-      await openDeferredPromptMode(command, target);
-      continueDeferredHotkey(command, target).catch(console.error);
+      const focus = prompt[3] || 0;
+      const run = ++deferredRun;
+      await openDeferredPromptMode(command, target, focus);
+      continueDeferredHotkey(command, target, focus, run).catch(console.error);
       return;
     }
 
     if (Array.isArray(prompt) && prompt.length >= 2) {
-      await openPromptMode(command, prompt[0], Boolean(prompt[1]));
+      await openPromptMode(command, prompt[0], Boolean(prompt[1]), prompt[3] || 0);
     }
   } catch (error) {
     console.error(error);
@@ -485,6 +520,7 @@ async function runHotkeyCommand(command) {
 }
 
 async function hideLauncher() {
+  if (window.hyperactDeferredPromptLocked) resetDeferredPrompt();
   await currentWindow.hide();
 }
 
@@ -751,9 +787,12 @@ function loadEditorCommand(id) {
 }
 
 function openCommandEditor(id = "") {
+  if (window.hyperactDeferredPromptLocked) resetDeferredPrompt();
+  deferredRun++;
   activeCommand = null;
   promptTarget = null;
   promptSelectAll = false;
+  promptFocus = 0;
   commandError = "";
   input.value = "Commands";
   input.placeholder = "Commands";
@@ -925,17 +964,22 @@ document.addEventListener("keydown", event => {
   } else if (event.key === "Escape") {
     event.preventDefault();
     if (promptTarget !== null) {
-      window.hyperactDeferredPromptLocked = false;
-      window.hyperactKeepVisible = false;
-      input.readOnly = false;
-      promptTarget = null;
-      promptSelectAll = false;
-      activeCommand = null;
-      commandError = "";
-      input.value = "";
-      input.placeholder = defaultPlaceholder;
-      selected = 0;
-      render();
+      if (window.hyperactDeferredPromptLocked) {
+        resetDeferredPrompt();
+      } else {
+        deferredRun++;
+        window.hyperactKeepVisible = false;
+        input.readOnly = false;
+        promptTarget = null;
+        promptSelectAll = false;
+        promptFocus = 0;
+        activeCommand = null;
+        commandError = "";
+        input.value = "";
+        input.placeholder = defaultPlaceholder;
+        selected = 0;
+        render();
+      }
       input.focus();
     } else if (activeCommand) {
       activeCommand = null;
