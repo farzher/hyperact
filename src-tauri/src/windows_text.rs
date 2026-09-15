@@ -419,7 +419,7 @@ pub fn copy_selection() -> Result<Option<String>, String> {
     send_ctrl_key(VK_C);
 
     for _ in 0..12 {
-        thread::sleep(Duration::from_millis(5));
+        thread::sleep(Duration::from_millis(1));
         if unsafe { GetClipboardSequenceNumber() } != sequence {
             return read_clipboard_text();
         }
