@@ -2,12 +2,12 @@
 setlocal
 cd /d "%~dp0"
 
-echo Stopping any existing Hyperact instance...
-taskkill /F /IM hyperact.exe >nul 2>&1
-
 echo Syncing Hyperact with origin/main...
 git fetch origin main || goto :error
 git reset --hard origin/main || goto :error
+
+echo Stopping any existing Hyperact instance...
+taskkill /F /IM hyperact.exe >nul 2>&1
 
 echo Starting Hyperact...
 cargo tauri dev || goto :error
