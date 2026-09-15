@@ -18,6 +18,7 @@
   let runVersion = 0;
   let dragging = false;
   let promptInputLocked = false;
+  let launcherSize = null;
 
   function showOutput(value, state = "") {
     exampleOutput.textContent = value;
@@ -103,12 +104,33 @@
     localStorage.setItem(splitKey, String(ratio));
   }
 
+  async function logicalWindowSize() {
+    const size = await hyperWindow.innerSize();
+    const scale = await hyperWindow.scaleFactor();
+    return {
+      width: size.width / scale,
+      height: size.height / scale
+    };
+  }
+
   async function resizeForEditor(open) {
     if (!LogicalSize) return;
 
     try {
-      await hyperWindow.setSize(new LogicalSize(open ? 920 : 720, open ? 620 : 430));
-      await hyperWindow.center();
+      if (open) {
+        launcherSize = await logicalWindowSize();
+        const width = Math.max(920, launcherSize.width);
+        const height = Math.max(620, launcherSize.height);
+
+        if (width !== launcherSize.width || height !== launcherSize.height) {
+          await hyperWindow.setSize(new LogicalSize(width, height));
+          await hyperWindow.center();
+        }
+      } else if (launcherSize) {
+        await hyperWindow.setSize(new LogicalSize(launcherSize.width, launcherSize.height));
+        await hyperWindow.center();
+        launcherSize = null;
+      }
     } catch (error) {
       console.error(error);
     }
