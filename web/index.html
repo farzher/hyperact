@@ -20,6 +20,7 @@
     </div>
 
     <div id="actions" class="actions" role="listbox"></div>
+    <div id="scroll-thumb" class="scroll-thumb" aria-hidden="true"></div>
 
     <section id="command-editor" class="command-editor" hidden>
       <div class="command-editor-head">
@@ -61,6 +62,41 @@
   </main>
 
   <script>
+    const actionList = document.querySelector("#actions");
+    const scrollThumb = document.querySelector("#scroll-thumb");
+    let scrollFadeTimer;
+
+    function updateScrollThumb() {
+      if (actionList.hidden || actionList.scrollHeight <= actionList.clientHeight) {
+        scrollThumb.hidden = true;
+        return;
+      }
+
+      scrollThumb.hidden = false;
+      const inset = 5;
+      const trackHeight = actionList.clientHeight - inset * 2;
+      const thumbHeight = Math.max(24, trackHeight * actionList.clientHeight / actionList.scrollHeight);
+      const maxScroll = actionList.scrollHeight - actionList.clientHeight;
+      const travel = trackHeight - thumbHeight;
+      const y = maxScroll ? travel * actionList.scrollTop / maxScroll : 0;
+
+      scrollThumb.style.height = `${thumbHeight}px`;
+      scrollThumb.style.top = `${actionList.offsetTop + inset + y}px`;
+    }
+
+    function showScrollThumb() {
+      updateScrollThumb();
+      if (scrollThumb.hidden) return;
+
+      scrollThumb.classList.add("visible");
+      clearTimeout(scrollFadeTimer);
+      scrollFadeTimer = setTimeout(() => scrollThumb.classList.remove("visible"), 650);
+    }
+
+    actionList.addEventListener("scroll", showScrollThumb, { passive: true });
+    new ResizeObserver(updateScrollThumb).observe(actionList);
+    new MutationObserver(updateScrollThumb).observe(actionList, { childList: true, subtree: true });
+
     window.addEventListener("blur", () => {
       window.__TAURI__.window.getCurrentWindow().hide();
     });
