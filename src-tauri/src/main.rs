@@ -363,6 +363,63 @@ fn submit_prompt_result(
 }
 
 #[tauri::command]
+fn show_launcher_no_activate(app: AppHandle) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        use std::ffi::c_void;
+
+        const SWP_NOSIZE: u32 = 0x0001;
+        const SWP_NOMOVE: u32 = 0x0002;
+        const SWP_NOACTIVATE: u32 = 0x0010;
+        const SWP_SHOWWINDOW: u32 = 0x0040;
+
+        #[link(name = "user32")]
+        unsafe extern "system" {
+            fn SetWindowPos(
+                window: *mut c_void,
+                insert_after: *mut c_void,
+                x: i32,
+                y: i32,
+                width: i32,
+                height: i32,
+                flags: u32,
+            ) -> i32;
+        }
+
+        let window = app
+            .get_webview_window("main")
+            .ok_or("Hyperact window is unavailable")?;
+        let hwnd = window.hwnd().map_err(|error| error.to_string())?;
+        let topmost = -1isize as *mut c_void;
+        let result = unsafe {
+            SetWindowPos(
+                hwnd.0 as *mut c_void,
+                topmost,
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW,
+            )
+        };
+
+        if result == 0 {
+            Err("Windows could not show Hyperact without activation".into())
+        } else {
+            Ok(())
+        }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let window = app
+            .get_webview_window("main")
+            .ok_or("Hyperact window is unavailable")?;
+        window.show().map_err(|error| error.to_string())
+    }
+}
+
+#[tauri::command]
 fn modifiers_held() -> bool {
     #[cfg(target_os = "windows")]
     {
@@ -810,6 +867,7 @@ fn main() {
             run_hotkey_command,
             resume_hotkey_command,
             submit_prompt_result,
+            show_launcher_no_activate,
             modifiers_held,
             non_ctrl_modifiers_held
         ])
