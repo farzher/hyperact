@@ -1,10 +1,11 @@
+const palette = document.querySelector(".palette");
 const input = document.querySelector("#input");
 const actions = document.querySelector("#actions");
 const kind = document.querySelector("#kind");
 const footer = document.querySelector("#footer");
 const dragHandle = document.querySelector("#drag-handle");
 const commandEditor = document.querySelector("#command-editor");
-const commandSelect = document.querySelector("#command-select");
+const commandList = document.querySelector("#command-list");
 const commandNew = document.querySelector("#command-new");
 const commandName = document.querySelector("#command-name");
 const commandHotkey = document.querySelector("#command-hotkey");
@@ -31,6 +32,8 @@ let commandError = "";
 let registeredCommandHotkeys = [];
 let promptTarget = null;
 let promptSelectAll = false;
+let editingCommandId = "";
+let editorStatusTimer;
 
 const systemActions = [
   { icon: "▣", title: "File Explorer", detail: "Windows", id: "explorer", keywords: "files folders", default: true },
@@ -570,35 +573,80 @@ async function refreshCommandHotkeys() {
   return failures;
 }
 
-function populateCommandSelect(selectedId = "") {
-  commandSelect.replaceChildren();
+function choiceValue(group) {
+  return group.dataset.value;
+}
 
-  const fresh = document.createElement("option");
-  fresh.value = "";
-  fresh.textContent = "New command";
-  commandSelect.append(fresh);
+function setChoice(group, value) {
+  group.dataset.value = value;
+  for (const button of group.querySelectorAll("button[data-value]")) {
+    button.classList.toggle("selected", button.dataset.value === value);
+  }
+}
 
-  for (const command of commands) {
-    const option = document.createElement("option");
-    option.value = command.id;
-    option.textContent = command.name;
-    commandSelect.append(option);
+function setCommandStatus(message = "", type = "") {
+  clearTimeout(editorStatusTimer);
+  commandStatus.textContent = message;
+  commandStatus.className = `command-status${type ? ` ${type}` : ""}`;
+
+  if (message && type === "success") {
+    editorStatusTimer = setTimeout(() => setCommandStatus(), 1400);
+  }
+}
+
+function populateCommandList(selectedId = editingCommandId) {
+  commandList.replaceChildren();
+
+  if (!commands.length) {
+    const empty = document.createElement("div");
+    empty.className = "command-list-empty";
+    empty.textContent = "No commands yet";
+    commandList.append(empty);
+    return;
   }
 
-  commandSelect.value = selectedId;
+  for (const command of commands) {
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = `command-list-item${command.id === selectedId ? " selected" : ""}`;
+
+    const icon = document.createElement("span");
+    icon.className = "command-list-icon";
+    icon.textContent = "N";
+
+    const copy = document.createElement("span");
+    copy.className = "command-list-copy";
+
+    const name = document.createElement("div");
+    name.className = "command-list-name";
+    name.textContent = command.name;
+    copy.append(name);
+
+    if (command.hotkey) {
+      const hotkey = document.createElement("div");
+      hotkey.className = "command-list-hotkey";
+      hotkey.textContent = command.hotkey;
+      copy.append(hotkey);
+    }
+
+    row.append(icon, copy);
+    row.addEventListener("click", () => loadEditorCommand(command.id));
+    commandList.append(row);
+  }
 }
 
 function loadEditorCommand(id) {
   const command = commands.find(item => item.id === id);
-  commandSelect.value = command?.id || "";
+  editingCommandId = command?.id || "";
   commandName.value = command?.name || "";
   commandHotkey.value = command?.hotkey || "";
-  commandInputMode.value = command?.inputMode === "selected" ? "selected" : "focused";
-  commandMissingInput.value = command?.missingInput === "nothing" ? "nothing" : "prompt";
-  commandOutputMode.value = command?.outputMode === "paste" ? "paste" : "type";
+  setChoice(commandInputMode, command?.inputMode === "selected" ? "selected" : "focused");
+  setChoice(commandMissingInput, command?.missingInput === "nothing" ? "nothing" : "prompt");
+  setChoice(commandOutputMode, command?.outputMode === "paste" ? "paste" : "type");
   commandCode.value = command?.code || "return input;";
   commandDelete.hidden = !command;
-  commandStatus.textContent = "";
+  setCommandStatus();
+  populateCommandList(editingCommandId);
   commandName.focus();
   commandName.select();
 }
@@ -608,26 +656,29 @@ function openCommandEditor(id = "") {
   promptTarget = null;
   promptSelectAll = false;
   commandError = "";
-  input.value = "";
+  input.value = "Commands";
   input.placeholder = "Commands";
   input.disabled = true;
-  kind.textContent = "Commands";
-  kind.classList.add("visible");
+  kind.textContent = "";
+  kind.classList.remove("visible");
   actions.hidden = true;
   footer.hidden = true;
   commandEditor.hidden = false;
-  populateCommandSelect(id);
-  loadEditorCommand(id);
+  palette.classList.add("command-mode");
+  loadEditorCommand(id || commands[0]?.id || "");
 }
 
 function closeCommandEditor() {
   commandEditor.hidden = true;
   actions.hidden = false;
   footer.hidden = false;
+  palette.classList.remove("command-mode");
   input.disabled = false;
   input.value = "";
   input.placeholder = defaultPlaceholder;
   selected = 0;
+  editingCommandId = "";
+  setCommandStatus();
   render();
   input.focus();
 }
@@ -636,23 +687,23 @@ async function saveEditorCommand() {
   const name = commandName.value.trim();
   const code = commandCode.value.trim();
   const hotkey = normalizeHotkey(commandHotkey.value);
-  const inputMode = commandInputMode.value === "selected" ? "selected" : "focused";
-  const missingInput = commandMissingInput.value === "nothing" ? "nothing" : "prompt";
-  const outputMode = commandOutputMode.value === "paste" ? "paste" : "type";
+  const inputMode = choiceValue(commandInputMode) === "selected" ? "selected" : "focused";
+  const missingInput = choiceValue(commandMissingInput) === "nothing" ? "nothing" : "prompt";
+  const outputMode = choiceValue(commandOutputMode) === "paste" ? "paste" : "type";
 
   if (!name) {
-    commandStatus.textContent = "Give the command a name.";
+    setCommandStatus("Give the command a name", "error");
     commandName.focus();
     return;
   }
 
   if (!code) {
-    commandStatus.textContent = "Add Node.js code for the command.";
+    setCommandStatus("Add Node.js code", "error");
     commandCode.focus();
     return;
   }
 
-  const existing = commands.find(command => command.id === commandSelect.value);
+  const existing = commands.find(command => command.id === editingCommandId);
   const id = existing?.id || crypto.randomUUID();
   const next = { id, name, hotkey, inputMode, missingInput, outputMode, code };
 
@@ -662,28 +713,32 @@ async function saveEditorCommand() {
     commands.push(next);
   }
 
+  editingCommandId = id;
   persistCommands();
-  populateCommandSelect(id);
-  loadEditorCommand(id);
+  populateCommandList(id);
+  commandDelete.hidden = false;
 
   const failures = await refreshCommandHotkeys();
   if (failures.has(id)) {
-    commandStatus.textContent = `Saved, but hotkey failed: ${failures.get(id)}`;
+    setCommandStatus(`Saved · hotkey failed: ${failures.get(id)}`, "error");
     return;
   }
 
-  closeCommandEditor();
+  setCommandStatus("Saved", "success");
 }
 
 async function deleteEditorCommand() {
-  const id = commandSelect.value;
-  if (!id) return;
+  if (!editingCommandId) return;
 
-  commands = commands.filter(command => command.id !== id);
+  const index = commands.findIndex(command => command.id === editingCommandId);
+  if (index < 0) return;
+
+  commands.splice(index, 1);
   persistCommands();
   await refreshCommandHotkeys();
-  populateCommandSelect();
-  loadEditorCommand("");
+
+  const next = commands[Math.min(index, commands.length - 1)];
+  loadEditorCommand(next?.id || "");
 }
 
 input.addEventListener("input", () => {
@@ -696,14 +751,20 @@ dragHandle.addEventListener("mousedown", event => {
   if (event.button === 0) currentWindow.startDragging();
 });
 
-commandSelect.addEventListener("change", () => loadEditorCommand(commandSelect.value));
-commandNew.addEventListener("click", () => {
-  populateCommandSelect();
-  loadEditorCommand("");
-});
+for (const group of [commandInputMode, commandMissingInput, commandOutputMode]) {
+  group.addEventListener("click", event => {
+    const button = event.target.closest("button[data-value]");
+    if (button) setChoice(group, button.dataset.value);
+  });
+}
+
+commandNew.addEventListener("click", () => loadEditorCommand(""));
 commandCancel.addEventListener("click", closeCommandEditor);
 commandSave.addEventListener("click", () => saveEditorCommand().catch(console.error));
 commandDelete.addEventListener("click", () => deleteEditorCommand().catch(console.error));
+commandHotkey.addEventListener("blur", () => {
+  commandHotkey.value = normalizeHotkey(commandHotkey.value);
+});
 
 window.addEventListener("focus", () => {
   if (commandEditor.hidden) {
@@ -720,6 +781,9 @@ document.addEventListener("keydown", event => {
     } else if (event.key === "Enter" && event.ctrlKey) {
       event.preventDefault();
       saveEditorCommand().catch(console.error);
+    } else if (event.key.toLowerCase() === "n" && event.ctrlKey) {
+      event.preventDefault();
+      loadEditorCommand("");
     }
     return;
   }
