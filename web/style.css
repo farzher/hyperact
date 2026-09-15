@@ -44,6 +44,7 @@ body {
   gap: 14px;
   padding: 0 20px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.075);
+  -webkit-app-region: no-drag;
 }
 
 .drag-handle {
@@ -53,6 +54,7 @@ body {
   display: grid;
   place-items: center;
   cursor: grab;
+  -webkit-app-region: drag;
 }
 
 .drag-handle:active {
@@ -80,6 +82,7 @@ body {
   font-size: 22px;
   font-weight: 430;
   letter-spacing: -0.25px;
+  -webkit-app-region: no-drag;
 }
 
 #input::placeholder {
@@ -98,6 +101,7 @@ body {
   font-weight: 600;
   letter-spacing: 0.35px;
   text-transform: uppercase;
+  -webkit-app-region: no-drag;
 }
 
 .kind.visible {
@@ -110,6 +114,7 @@ body {
   padding: 8px;
   overflow: hidden auto;
   scrollbar-width: none;
+  -webkit-app-region: no-drag;
 }
 
 .actions::-webkit-scrollbar {
@@ -138,6 +143,7 @@ body {
   font: inherit;
   text-align: left;
   cursor: default;
+  -webkit-app-region: no-drag;
 }
 
 .action:hover,
@@ -212,6 +218,7 @@ body {
   border-top: 1px solid rgba(255, 255, 255, 0.06);
   color: #686870;
   font-size: 10.5px;
+  -webkit-app-region: no-drag;
 }
 
 .footer span {
