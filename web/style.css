@@ -25,6 +25,7 @@ body {
 }
 
 .palette {
+  position: relative;
   height: 100%;
   display: flex;
   flex-direction: column;
@@ -108,34 +109,28 @@ body {
   min-height: 0;
   padding: 6px 7px;
   overflow: hidden auto;
+  scrollbar-width: none;
 }
 
 .actions::-webkit-scrollbar {
-  width: 6px;
-  background: transparent;
-}
-
-.actions::-webkit-scrollbar-track,
-.actions::-webkit-scrollbar-corner {
-  background: transparent;
-}
-
-.actions::-webkit-scrollbar-button {
   width: 0;
   height: 0;
-  display: none;
 }
 
-.actions::-webkit-scrollbar-thumb {
-  border: 1px solid transparent;
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 0);
-  background-clip: padding-box;
-  transition: background-color 420ms ease;
+.scroll-thumb {
+  position: absolute;
+  z-index: 5;
+  right: 3px;
+  width: 3px;
+  border-radius: 3px;
+  pointer-events: none;
+  background: rgba(255, 255, 255, 0.3);
+  opacity: 0;
+  transition: opacity 420ms ease;
 }
 
-.actions.scrolling::-webkit-scrollbar-thumb {
-  background-color: rgba(255, 255, 255, 0.28);
+.scroll-thumb.visible {
+  opacity: 1;
 }
 
 .empty {
