@@ -254,6 +254,50 @@ console.log = (...args) => process.stderr.write(args.join(' ') + '\n');
     String::from_utf8(output.stdout).map_err(|error| error.to_string())
 }
 
+#[cfg(target_os = "windows")]
+fn execute_hotkey_command(
+    code: String,
+    input_mode: String,
+    missing_input: String,
+    output_mode: String,
+    target: u64,
+) -> Result<Vec<u64>, String> {
+    use std::{thread, time::Duration};
+
+    windows_text::focus_window(target)?;
+    let original_clipboard = windows_text::read_clipboard_text().ok().flatten();
+    let mut captured = windows_text::copy_selection()?;
+    let mut selected_all = false;
+
+    if captured.is_none() && input_mode != "selected" {
+        windows_text::select_all();
+        selected_all = true;
+        thread::sleep(Duration::from_millis(10));
+        captured = windows_text::copy_selection()?;
+    }
+
+    if let Some(original) = original_clipboard.as_deref() {
+        let _ = windows_text::write_clipboard_text(original);
+    }
+
+    let Some(input) = captured else {
+        if missing_input == "prompt" {
+            return Ok(vec![target, u64::from(selected_all)]);
+        }
+        return Ok(Vec::new());
+    };
+
+    let output = run_node_command(code, input)?;
+    windows_text::insert_result(
+        target,
+        &output,
+        &output_mode,
+        selected_all,
+        original_clipboard.as_deref(),
+    )?;
+    Ok(Vec::new())
+}
+
 #[tauri::command]
 fn run_hotkey_command(
     code: String,
@@ -263,41 +307,32 @@ fn run_hotkey_command(
 ) -> Result<Vec<u64>, String> {
     #[cfg(target_os = "windows")]
     {
-        use std::{thread, time::Duration};
+        let target = windows_text::foreground_window()?;
+
+        if missing_input == "prompt" && windows_text::non_ctrl_modifiers_held() {
+            return Ok(vec![target, 0, 1]);
+        }
 
         windows_text::wait_for_non_ctrl_modifiers_release();
-        let target = windows_text::foreground_window()?;
-        let original_clipboard = windows_text::read_clipboard_text().ok().flatten();
-        let mut captured = windows_text::copy_selection()?;
-        let mut selected_all = false;
+        return execute_hotkey_command(code, input_mode, missing_input, output_mode, target);
+    }
 
-        if captured.is_none() && input_mode != "selected" {
-            windows_text::select_all();
-            selected_all = true;
-            thread::sleep(Duration::from_millis(10));
-            captured = windows_text::copy_selection()?;
-        }
+    #[cfg(not(target_os = "windows"))]
+    Err("Focused-text hotkeys are only available on Windows".into())
+}
 
-        if let Some(original) = original_clipboard.as_deref() {
-            let _ = windows_text::write_clipboard_text(original);
-        }
-
-        let Some(input) = captured else {
-            if missing_input == "prompt" {
-                return Ok(vec![target, u64::from(selected_all)]);
-            }
-            return Ok(Vec::new());
-        };
-
-        let output = run_node_command(code, input)?;
-        windows_text::insert_result(
-            target,
-            &output,
-            &output_mode,
-            selected_all,
-            original_clipboard.as_deref(),
-        )?;
-        return Ok(Vec::new());
+#[tauri::command]
+fn resume_hotkey_command(
+    code: String,
+    input_mode: String,
+    missing_input: String,
+    output_mode: String,
+    target: u64,
+) -> Result<Vec<u64>, String> {
+    #[cfg(target_os = "windows")]
+    {
+        windows_text::wait_for_non_ctrl_modifiers_release();
+        return execute_hotkey_command(code, input_mode, missing_input, output_mode, target);
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -332,6 +367,19 @@ fn modifiers_held() -> bool {
     #[cfg(target_os = "windows")]
     {
         windows_text::modifiers_held()
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        false
+    }
+}
+
+#[tauri::command]
+fn non_ctrl_modifiers_held() -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        windows_text::non_ctrl_modifiers_held()
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -529,9 +577,17 @@ mod windows_text {
         }
     }
 
-    fn focus_window(target: u64) -> Result<(), String> {
+    pub fn focus_window(target: u64) -> Result<(), String> {
         let window = target as usize as *mut c_void;
-        if window.is_null() || unsafe { SetForegroundWindow(window) } == 0 {
+        if window.is_null() {
+            return Err("Could not restore the original window".into());
+        }
+
+        if unsafe { GetForegroundWindow() } == window {
+            return Ok(());
+        }
+
+        if unsafe { SetForegroundWindow(window) } == 0 {
             return Err("Could not restore the original window".into());
         }
         thread::sleep(Duration::from_millis(25));
@@ -638,30 +694,23 @@ mod windows_text {
         }
     }
 
-    pub fn wait_for_non_ctrl_modifiers_release() {
-        loop {
-            let held = unsafe {
-                key_down(VK_SHIFT)
-                    || key_down(VK_MENU)
-                    || key_down(VK_LWIN)
-                    || key_down(VK_RWIN)
-            };
+    pub fn non_ctrl_modifiers_held() -> bool {
+        unsafe {
+            key_down(VK_SHIFT)
+                || key_down(VK_MENU)
+                || key_down(VK_LWIN)
+                || key_down(VK_RWIN)
+        }
+    }
 
-            if !held {
-                return;
-            }
+    pub fn wait_for_non_ctrl_modifiers_release() {
+        while non_ctrl_modifiers_held() {
             thread::sleep(Duration::from_millis(5));
         }
     }
 
     pub fn modifiers_held() -> bool {
-        unsafe {
-            key_down(VK_CONTROL as i32)
-                || key_down(VK_SHIFT)
-                || key_down(VK_MENU)
-                || key_down(VK_LWIN)
-                || key_down(VK_RWIN)
-        }
+        unsafe { key_down(VK_CONTROL as i32) || non_ctrl_modifiers_held() }
     }
 
     pub fn wait_for_modifiers_release() {
@@ -759,8 +808,10 @@ fn main() {
             run_system_action,
             run_node_command,
             run_hotkey_command,
+            resume_hotkey_command,
             submit_prompt_result,
-            modifiers_held
+            modifiers_held,
+            non_ctrl_modifiers_held
         ])
         .run(tauri::generate_context!())
         .expect("error while running Hyperact");
