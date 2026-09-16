@@ -16,8 +16,8 @@
     .item-actions-popover {
       position: absolute;
       z-index: 50;
-      top: 76px;
       right: 14px;
+      bottom: 42px;
       width: min(350px, calc(100% - 28px));
       overflow: hidden;
       border: 1px solid rgba(255, 255, 255, 0.14);
@@ -221,7 +221,7 @@
     const meta = [];
     const alias = aliasFor(item);
     const hotkey = hotkeyFor(item);
-    if (alias) meta.push(`@${alias}`);
+    if (alias) meta.push(alias);
     if (hotkey) meta.push(hotkey);
     item.detail = meta.join(" · ");
     return item;
