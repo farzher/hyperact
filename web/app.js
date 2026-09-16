@@ -1,45 +1,64 @@
-const palette = document.querySelector(".palette");
-const input = document.querySelector("#input");
-const actions = document.querySelector("#actions");
-const kind = document.querySelector("#kind");
-const footer = document.querySelector("#footer");
-const dragHandle = document.querySelector("#drag-handle");
-const commandEditor = document.querySelector("#command-editor");
-const commandList = document.querySelector("#command-list");
-const commandNew = document.querySelector("#command-new");
-const commandName = document.querySelector("#command-name");
-const commandHotkey = document.querySelector("#command-hotkey");
-const commandInputMode = document.querySelector("#command-input-mode");
-const commandMissingInput = document.querySelector("#command-missing-input");
-const commandOutputMode = document.querySelector("#command-output-mode");
-const commandCode = document.querySelector("#command-code");
-const commandStatus = document.querySelector("#command-status");
-const commandDelete = document.querySelector("#command-delete");
-const commandCancel = document.querySelector("#command-cancel");
-const commandSave = document.querySelector("#command-save");
+const $ = selector => document.querySelector(selector);
+const palette = $(".palette");
+const input = $("#input");
+const actions = $("#actions");
+const kind = $("#kind");
+const footer = $("#footer");
+const scrollThumb = $("#scroll-thumb");
+const commandEditor = $("#command-editor");
+const commandList = $("#command-list");
+const commandNew = $("#command-new");
+const commandName = $("#command-name");
+const commandMatch = $("#command-match");
+const commandHotkey = $("#command-hotkey");
+const commandInputMode = $("#command-input-mode");
+const commandMissingInput = $("#command-missing-input");
+const commandOutputMode = $("#command-output-mode");
+const commandCode = $("#command-code");
+const commandStatus = $("#command-status");
+const commandDelete = $("#command-delete");
+const commandCancel = $("#command-cancel");
+const commandSave = $("#command-save");
+const actionMenu = $("#item-actions");
+const actionMenuTitle = $("#item-actions-title");
+const actionMenuHint = $("#item-actions-hint");
+const actionMenuList = $("#item-actions-list");
+const actionMenuInput = $("#item-actions-search");
+
 const { invoke } = window.__TAURI__.core;
 const currentWindow = window.__TAURI__.window.getCurrentWindow();
 const globalShortcut = window.__TAURI__.globalShortcut;
 const defaultPlaceholder = "Search apps and actions…";
 const commandStorageKey = "hyperact.commands";
+const preferenceStorageKey = "hyperact.itemPreferences";
+const reservedHotkeys = new Set(["alt+space", "ctrl+k"]);
+const maxResults = 60;
 
 let items = [];
 let selected = 0;
 let startApps = [];
 let commands = loadCommands();
+let preferences = loadPreferences();
 let activeCommand = null;
+let commandSearchQuery = "";
 let commandError = "";
-let registeredCommandHotkeys = [];
-const pressedCommandHotkeys = new Set();
 let promptTarget = null;
 let promptSelectAll = false;
 let promptFocus = 0;
+let promptLocked = false;
 let deferredRun = 0;
 let editingCommandId = "";
 let editorStatusTimer;
-
-window.hyperactDeferredPromptLocked = false;
-window.hyperactKeepVisible = false;
+let editorHotkeyOriginal = "";
+let registeredHotkeys = [];
+const pressedHotkeys = new Set();
+let menuState = null;
+let menuMode = "";
+let menuSelected = 0;
+let pendingHotkey = "";
+let originalHotkey = "";
+let blurTimer;
+let scrollFadeTimer;
 
 const systemActions = [
   { icon: "▣", title: "File Explorer", detail: "Windows", id: "explorer", keywords: "files folders", default: true },
@@ -67,7 +86,7 @@ const systemActions = [
   { icon: "←", title: "Sign out", detail: "Sign out of Windows", id: "sign-out", keywords: "logout log out", exact: true },
   { icon: "↻", title: "Restart", detail: "Restart this PC", id: "restart", keywords: "reboot", exact: true },
   { icon: "○", title: "Shut down", detail: "Shut down this PC", id: "shutdown", keywords: "shutdown power off", exact: true }
-];
+].map(item => ({ ...item, search: `${item.title} ${item.keywords}`.toLowerCase() }));
 
 function loadCommands() {
   try {
@@ -75,31 +94,76 @@ function loadCommands() {
     if (!Array.isArray(saved)) return [];
 
     return saved
-      .filter(command => command && command.id && command.name && typeof command.code === "string")
-      .map(({
-        id,
-        name,
-        hotkey = "",
-        inputMode = "focused",
-        missingInput = "prompt",
-        outputMode = "type",
-        code
-      }) => ({
-        id,
-        name,
-        hotkey,
-        inputMode: inputMode === "selected" ? "selected" : "focused",
-        missingInput: missingInput === "nothing" ? "nothing" : "prompt",
-        outputMode: outputMode === "paste" ? "paste" : "type",
-        code
+      .filter(command => command?.id && command?.name && typeof command.code === "string")
+      .map(command => ({
+        id: command.id,
+        name: command.name,
+        hotkey: command.hotkey || "",
+        match: command.match || "",
+        inputMode: command.inputMode === "selected" ? "selected" : "focused",
+        missingInput: command.missingInput === "nothing" ? "nothing" : "prompt",
+        outputMode: command.outputMode === "paste" ? "paste" : "type",
+        code: command.code
       }));
   } catch {
     return [];
   }
 }
 
+function loadPreferences() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(preferenceStorageKey) || "{}");
+    return saved && typeof saved === "object" && !Array.isArray(saved) ? saved : {};
+  } catch {
+    return {};
+  }
+}
+
 function persistCommands() {
   localStorage.setItem(commandStorageKey, JSON.stringify(commands));
+}
+
+function persistPreferences() {
+  localStorage.setItem(preferenceStorageKey, JSON.stringify(preferences));
+}
+
+function preference(key) {
+  return preferences[key] || {};
+}
+
+function setPreference(key, field, value) {
+  const next = { ...preference(key), [field]: value };
+  if (!next.alias && !next.hotkey) delete preferences[key];
+  else preferences[key] = next;
+  persistPreferences();
+}
+
+function commandKey(command) {
+  return `command:${command.id}`;
+}
+
+function systemKey(item) {
+  return `system:${item.id}`;
+}
+
+function appKey(app) {
+  return `app:${app.id}`;
+}
+
+function aliasFor(item) {
+  return item?.itemKey ? preference(item.itemKey).alias || "" : "";
+}
+
+function hotkeyFor(item) {
+  if (item?.command) return item.command.hotkey || "";
+  return item?.itemKey ? preference(item.itemKey).hotkey || "" : "";
+}
+
+function decorateItem(item) {
+  if (!item.itemKey) return item;
+  item.alias = aliasFor(item);
+  item.hotkey = hotkeyFor(item);
+  return item;
 }
 
 function windowsPath(value) {
@@ -108,8 +172,7 @@ function windowsPath(value) {
 
 function toWslPath(value) {
   const path = value.trim();
-  const drive = path[0].toLowerCase();
-  return `/mnt/${drive}${path.slice(2).replaceAll("\\", "/")}`;
+  return `/mnt/${path[0].toLowerCase()}${path.slice(2).replaceAll("\\", "/")}`;
 }
 
 function slugify(value) {
@@ -122,64 +185,74 @@ function slugify(value) {
     .replace(/^-|-$/g, "");
 }
 
-function matchScore(text, query) {
-  const value = text.toLowerCase();
-  const q = query.toLowerCase();
-  if (value === q) return 0;
-  if (value.startsWith(q)) return 1;
-  if (value.split(/\s+/).some(word => word.startsWith(q))) return 2;
-  const index = value.indexOf(q);
+function matchScore(value, query) {
+  if (value === query) return 0;
+  if (value.startsWith(query)) return 1;
+  if (value.split(/\s+/).some(word => word.startsWith(query))) return 2;
+  const index = value.indexOf(query);
   if (index >= 0) return 3 + index / 100;
 
   let at = 0;
   for (const character of value) {
-    if (character === q[at]) at++;
-    if (at === q.length) return 5;
+    if (character === query[at]) at++;
+    if (at === query.length) return 5;
   }
   return Infinity;
 }
 
 function nativeCategory(item) {
-  if (item.detail === "Settings") return "Windows Settings";
+  if (item.detail === "Settings" || item.id === "settings") return "Windows Settings";
   if (item.detail === "Folder") return "Folder";
   if (item.detail === "File Explorer") return "File Explorer";
   if (item.id === "control-panel") return "Control Panel";
   if (["explorer", "terminal", "task-manager"].includes(item.id)) return "Application";
-  if (item.id === "settings") return "Windows Settings";
   return "Windows";
 }
 
 function nativeItem(item, score = 0) {
-  return {
-    ...item,
+  return decorateItem({
+    icon: item.icon,
+    title: item.title,
     detail: "",
     category: nativeCategory(item),
     score,
+    itemKey: systemKey(item),
+    itemType: "system",
+    itemSource: item,
     run: () => runNative("run_system_action", { action: item.id })
-  };
+  });
 }
 
 function appItem(app, score) {
-  return {
-    icon: app.name.trim().charAt(0).toUpperCase() || "A",
+  return decorateItem({
+    icon: app.name.charAt(0).toUpperCase() || "A",
     image: app.icon,
     title: app.name,
     detail: "",
     category: app.type || "Application",
     score,
+    itemKey: appKey(app),
+    itemType: "app",
+    itemSource: app,
     run: () => runNative("launch_start_app", { appId: app.id })
-  };
+  });
 }
 
-function commandItem(command, score = 8) {
-  return {
+function commandResult(command, score, mode, value) {
+  const direct = mode === "input";
+  return decorateItem({
     icon: "N",
     title: command.name,
-    detail: command.hotkey || "",
-    category: "Command",
+    detail: "",
+    category: direct ? "Text Action" : "Command",
     score,
-    run: () => runCommand(command, input.value)
-  };
+    command,
+    commandMode: mode,
+    itemKey: commandKey(command),
+    itemType: "command",
+    itemSource: command,
+    run: () => direct ? runCommand(command, value) : enterCommandMode(command)
+  });
 }
 
 function manageCommandsItem(score = 9) {
@@ -193,22 +266,35 @@ function manageCommandsItem(score = 9) {
   };
 }
 
-function buildActions(value) {
-  const query = value.trim();
+function inputMatches(command, value) {
+  if (!command.match) return false;
+  try {
+    return new RegExp(command.match).test(value);
+  } catch {
+    return false;
+  }
+}
 
+function buildActions(value) {
   if (activeCommand) {
-    return [{
+    return [decorateItem({
       icon: "N",
       title: `Run ${activeCommand.name}`,
-      detail: commandError || (promptTarget !== null ? "Enter submit · Shift+Enter run again" : "Node.js command"),
+      detail: commandError || (promptTarget !== null
+        ? "Enter submit · Shift+Enter run again"
+        : "Enter run · Shift+Enter run again"),
       category: "Command",
       score: 0,
-      run: () => promptTarget !== null
-        ? runPromptCommand(false)
-        : runCommand(activeCommand, value)
-    }];
+      command: activeCommand,
+      commandMode: "active",
+      itemKey: commandKey(activeCommand),
+      itemType: "command",
+      itemSource: activeCommand,
+      run: () => promptTarget !== null ? runPromptCommand(false) : runCommandMode(false)
+    })];
   }
 
+  const query = value.trim();
   if (!query) {
     return [
       ...systemActions.filter(item => item.default).map(nativeItem),
@@ -216,11 +302,12 @@ function buildActions(value) {
     ];
   }
 
-  const result = [];
+  const q = query.toLowerCase();
+  const matches = [];
 
   if (windowsPath(value)) {
     const path = toWslPath(value);
-    result.push(
+    matches.push(
       {
         icon: ">_",
         title: "Linux cd",
@@ -240,36 +327,50 @@ function buildActions(value) {
     );
   }
 
-  const matches = [];
-
   for (const item of systemActions) {
-    const text = `${item.title} ${item.keywords}`;
-    const score = matchScore(text, query);
-    const exactQuery = query.toLowerCase();
+    const baseScore = matchScore(item.search, q);
+    const alias = preference(systemKey(item)).alias?.toLowerCase() || "";
+    const aliasScore = alias ? matchScore(alias, q) + 0.03 : Infinity;
     const exactAllowed = !item.exact
-      || exactQuery === item.title.toLowerCase()
-      || item.keywords.split(/\s+/).includes(exactQuery);
-
+      || Number.isFinite(aliasScore)
+      || q === item.title.toLowerCase()
+      || item.keywords.split(/\s+/).includes(q);
+    const score = Math.min(baseScore, aliasScore);
     if (Number.isFinite(score) && exactAllowed) matches.push(nativeItem(item, score));
   }
 
   for (const app of startApps) {
-    const score = matchScore(app.name, query);
-    if (Number.isFinite(score)) matches.push(appItem(app, score + 0.1));
+    const baseScore = matchScore(app.search, q) + 0.1;
+    const alias = preference(appKey(app)).alias?.toLowerCase() || "";
+    const aliasScore = alias ? matchScore(alias, q) + 0.03 : Infinity;
+    const score = Math.min(baseScore, aliasScore);
+    if (Number.isFinite(score)) matches.push(appItem(app, score));
   }
 
   for (const command of commands) {
-    const score = matchScore(command.name, query);
-    matches.push(commandItem(command, Number.isFinite(score) ? score + 0.05 : 8));
+    if (inputMatches(command, value)) {
+      matches.push(commandResult(command, 0.02, "input", value));
+      continue;
+    }
+
+    const nameScore = matchScore(command.name.toLowerCase(), q) + 0.05;
+    const alias = preference(commandKey(command)).alias?.toLowerCase() || "";
+    const aliasScore = alias ? matchScore(alias, q) + 0.04 : Infinity;
+    const score = Math.min(nameScore, aliasScore);
+
+    if (Number.isFinite(score)) {
+      matches.push(commandResult(command, score, "search", value));
+    } else if (!command.match) {
+      matches.push(commandResult(command, 8, "input", value));
+    }
   }
 
-  const commandManagerScore = matchScore("commands add command edit command custom automation", query);
-  if (Number.isFinite(commandManagerScore)) matches.push(manageCommandsItem(commandManagerScore));
+  const managerScore = matchScore("commands add command edit command custom automation", q);
+  if (Number.isFinite(managerScore)) matches.push(manageCommandsItem(managerScore));
 
   matches.sort((a, b) => a.score - b.score || a.title.localeCompare(b.title));
-  result.push(...matches);
 
-  result.push(
+  const textActions = [
     {
       icon: "Aa",
       title: "UPPERCASE",
@@ -294,9 +395,9 @@ function buildActions(value) {
       score: 22,
       run: () => setInput(slugify(value))
     }
-  );
+  ];
 
-  return result;
+  return [...matches.slice(0, maxResults - textActions.length), ...textActions];
 }
 
 function detectKind(value) {
@@ -315,12 +416,63 @@ function setInput(value) {
   render();
 }
 
+function enterCommandMode(command) {
+  commandSearchQuery = input.value;
+  activeCommand = command;
+  promptTarget = null;
+  promptSelectAll = false;
+  promptFocus = 0;
+  commandError = "";
+  input.value = "";
+  input.placeholder = `${command.name} input…`;
+  selected = 0;
+  render();
+  input.focus();
+}
+
+function exitCommandMode() {
+  const query = commandSearchQuery;
+  commandSearchQuery = "";
+  activeCommand = null;
+  commandError = "";
+  input.placeholder = defaultPlaceholder;
+  setInput(query);
+  input.focus();
+}
+
+async function runCommandMode(stayOpen) {
+  const command = activeCommand;
+  if (!command || promptTarget !== null) return;
+
+  commandError = "";
+  try {
+    const output = String(await invoke("run_node_command", {
+      code: command.code,
+      input: input.value
+    }));
+
+    if (stayOpen) {
+      setInput(output);
+      input.select();
+      return;
+    }
+
+    commandSearchQuery = "";
+    activeCommand = null;
+    input.placeholder = defaultPlaceholder;
+    setInput(output);
+  } catch (error) {
+    commandError = error?.message || String(error);
+    render();
+  }
+}
+
 async function runCommand(command, value) {
   commandError = "";
-
   try {
     const output = await invoke("run_node_command", { code: command.code, input: value });
     activeCommand = null;
+    commandSearchQuery = "";
     input.placeholder = defaultPlaceholder;
     setInput(String(output));
   } catch (error) {
@@ -334,7 +486,6 @@ async function runPromptCommand(stayOpen) {
   if (!command || promptTarget === null) return;
 
   commandError = "";
-
   try {
     const output = String(await invoke("run_node_command", {
       code: command.code,
@@ -350,15 +501,8 @@ async function runPromptCommand(stayOpen) {
     const target = promptTarget;
     const selectAll = promptSelectAll;
     const focus = promptFocus;
-    promptTarget = null;
-    promptSelectAll = false;
-    promptFocus = 0;
-    activeCommand = null;
-    input.value = "";
-    input.placeholder = defaultPlaceholder;
-    selected = 0;
+    clearPromptState();
     render();
-
     await hideLauncher();
     await invoke("submit_prompt_result", {
       target,
@@ -373,6 +517,36 @@ async function runPromptCommand(stayOpen) {
   }
 }
 
+function clearPromptState() {
+  promptLocked = false;
+  promptTarget = null;
+  promptSelectAll = false;
+  promptFocus = 0;
+  activeCommand = null;
+  commandError = "";
+  input.readOnly = false;
+  input.value = "";
+  input.placeholder = defaultPlaceholder;
+  selected = 0;
+}
+
+async function unlockPromptWhenReady(target) {
+  while (promptLocked && promptTarget === target) {
+    try {
+      if (!await invoke("modifiers_held")) break;
+    } catch {
+      break;
+    }
+    await new Promise(resolve => setTimeout(resolve, 8));
+  }
+
+  if (promptTarget === target) {
+    promptLocked = false;
+    input.readOnly = false;
+    input.focus();
+  }
+}
+
 async function openPromptMode(command, target, selectAll, focus = 0) {
   if (!commandEditor.hidden) closeCommandEditor();
 
@@ -380,28 +554,8 @@ async function openPromptMode(command, target, selectAll, focus = 0) {
   promptTarget = target;
   promptSelectAll = selectAll;
   promptFocus = focus;
+  promptLocked = true;
   commandError = "";
-  input.disabled = false;
-  input.value = "";
-  input.placeholder = `${command.name} input…`;
-  selected = 0;
-  render();
-
-  await currentWindow.show();
-  await currentWindow.setFocus();
-  input.focus();
-}
-
-async function openDeferredPromptMode(command, target, focus = 0) {
-  if (!commandEditor.hidden) closeCommandEditor();
-
-  activeCommand = command;
-  promptTarget = target;
-  promptSelectAll = false;
-  promptFocus = focus;
-  commandError = "";
-  window.hyperactDeferredPromptLocked = true;
-  window.hyperactKeepVisible = true;
   input.disabled = false;
   input.readOnly = true;
   input.value = "";
@@ -410,50 +564,30 @@ async function openDeferredPromptMode(command, target, focus = 0) {
   render();
 
   await currentWindow.show();
+  await currentWindow.setFocus();
+  input.focus();
+  unlockPromptWhenReady(target).catch(console.error);
 }
 
-function resetDeferredPrompt() {
-  deferredRun++;
-  window.hyperactDeferredPromptLocked = false;
-  window.hyperactKeepVisible = false;
-  input.readOnly = false;
-  promptTarget = null;
-  promptSelectAll = false;
-  promptFocus = 0;
-  activeCommand = null;
-  commandError = "";
-  input.value = "";
-  input.placeholder = defaultPlaceholder;
-  selected = 0;
-  render();
-}
-
-async function deferredIsActive(target, run) {
-  if (run !== deferredRun || !window.hyperactDeferredPromptLocked || promptTarget !== target) {
+async function launcherVisible() {
+  try {
+    return await currentWindow.isVisible();
+  } catch {
     return false;
   }
-
-  try {
-    if (!await currentWindow.isVisible()) {
-      if (run === deferredRun) resetDeferredPrompt();
-      return false;
-    }
-  } catch {}
-
-  return run === deferredRun && window.hyperactDeferredPromptLocked && promptTarget === target;
 }
 
 async function continueDeferredHotkey(command, target, focus, run) {
-  while (await deferredIsActive(target, run)) {
+  while (run === deferredRun) {
     try {
       if (!await invoke("non_ctrl_modifiers_held")) break;
     } catch {
-      break;
+      return;
     }
     await new Promise(resolve => setTimeout(resolve, 8));
   }
 
-  if (!await deferredIsActive(target, run)) return;
+  if (run !== deferredRun || await launcherVisible()) return;
 
   try {
     const prompt = await invoke("resume_hotkey_command", {
@@ -465,34 +599,17 @@ async function continueDeferredHotkey(command, target, focus, run) {
       focus
     });
 
-    if (!await deferredIsActive(target, run)) return;
-
-    window.hyperactDeferredPromptLocked = false;
-    input.readOnly = false;
-
+    if (run !== deferredRun || await launcherVisible()) return;
     if (Array.isArray(prompt) && prompt.length >= 2) {
       await openPromptMode(command, target, Boolean(prompt[1]), prompt[3] || focus);
-      window.hyperactKeepVisible = false;
-      return;
     }
-
-    resetDeferredPrompt();
-    await currentWindow.hide();
   } catch (error) {
-    if (!await deferredIsActive(target, run)) return;
-
-    window.hyperactDeferredPromptLocked = false;
-    commandError = error?.message || String(error);
-    input.readOnly = false;
-    await currentWindow.setFocus();
-    input.focus();
-    window.hyperactKeepVisible = false;
-    render();
+    console.error(error);
   }
 }
 
 async function runHotkeyCommand(command) {
-  if (window.hyperactDeferredPromptLocked) resetDeferredPrompt();
+  const run = ++deferredRun;
 
   try {
     const prompt = await invoke("run_hotkey_command", {
@@ -502,12 +619,10 @@ async function runHotkeyCommand(command) {
       outputMode: command.outputMode
     });
 
+    if (run !== deferredRun) return;
+
     if (Array.isArray(prompt) && prompt.length >= 3 && prompt[2] === 1) {
-      const target = prompt[0];
-      const focus = prompt[3] || 0;
-      const run = ++deferredRun;
-      await openDeferredPromptMode(command, target, focus);
-      continueDeferredHotkey(command, target, focus, run).catch(console.error);
+      continueDeferredHotkey(command, prompt[0], prompt[3] || 0, run).catch(console.error);
       return;
     }
 
@@ -520,7 +635,10 @@ async function runHotkeyCommand(command) {
 }
 
 async function hideLauncher() {
-  if (window.hyperactDeferredPromptLocked) resetDeferredPrompt();
+  deferredRun++;
+  promptLocked = false;
+  input.readOnly = false;
+  closeActionMenu(false);
   await currentWindow.hide();
 }
 
@@ -545,19 +663,85 @@ function selectItem(index) {
   if (!items.length) return;
 
   const next = (index + items.length) % items.length;
-  const previousRow = actions.children[selected];
-  if (previousRow) {
-    previousRow.classList.remove("selected");
-    previousRow.setAttribute("aria-selected", "false");
-  }
+  const previous = actions.children[selected];
+  previous?.classList.remove("selected");
+  previous?.setAttribute("aria-selected", "false");
 
   selected = next;
   const row = actions.children[selected];
-  if (row) {
-    row.classList.add("selected");
-    row.setAttribute("aria-selected", "true");
-    row.scrollIntoView({ block: "nearest" });
+  row?.classList.add("selected");
+  row?.setAttribute("aria-selected", "true");
+  row?.scrollIntoView({ block: "nearest" });
+  updateFooter();
+}
+
+function createActionRow(item, index) {
+  const row = document.createElement("button");
+  row.className = `action${index === selected ? " selected" : ""}`;
+  row.type = "button";
+  row.setAttribute("role", "option");
+  row.setAttribute("aria-selected", index === selected ? "true" : "false");
+
+  const icon = document.createElement("span");
+  icon.className = "action-icon";
+  if (item.image) {
+    const image = document.createElement("img");
+    image.src = item.image;
+    image.alt = "";
+    image.draggable = false;
+    image.addEventListener("error", () => {
+      icon.replaceChildren();
+      icon.textContent = item.icon;
+    }, { once: true });
+    icon.append(image);
+  } else {
+    icon.textContent = item.icon;
   }
+
+  const copy = document.createElement("span");
+  copy.className = "action-copy";
+
+  const title = document.createElement("span");
+  title.className = "action-title";
+  title.textContent = item.title;
+  copy.append(title);
+
+  if (item.alias) {
+    const alias = document.createElement("span");
+    alias.className = "action-alias-badge";
+    alias.textContent = item.alias;
+    copy.append(alias);
+  }
+
+  if (item.detail) {
+    const detail = document.createElement("span");
+    detail.className = "action-detail";
+    detail.textContent = item.detail;
+    copy.append(detail);
+  }
+
+  if (item.hotkey) {
+    const hotkey = document.createElement("span");
+    hotkey.className = "action-hotkey";
+    hotkey.textContent = item.hotkey;
+    copy.append(hotkey);
+  }
+
+  const category = document.createElement("span");
+  category.className = "action-category";
+  category.textContent = item.category || "Action";
+
+  row.append(icon, copy, category);
+  row.addEventListener("mouseenter", () => {
+    if (selected !== index) selectItem(index);
+  });
+  row.addEventListener("click", () => run(index));
+  row.addEventListener("contextmenu", event => {
+    event.preventDefault();
+    if (selected !== index) selectItem(index);
+    openActionMenu(item);
+  });
+  return row;
 }
 
 function render() {
@@ -570,73 +754,31 @@ function render() {
   kind.textContent = type;
   kind.classList.toggle("visible", Boolean(type));
 
-  actions.replaceChildren();
-
   if (!items.length) {
     const empty = document.createElement("div");
     empty.className = "empty";
     empty.textContent = "No matches";
-    actions.append(empty);
+    actions.replaceChildren(empty);
+    updateFooter();
+    updateScrollThumb();
     return;
   }
 
-  items.forEach((item, index) => {
-    const row = document.createElement("button");
-    row.className = `action${index === selected ? " selected" : ""}`;
-    row.type = "button";
-    row.setAttribute("role", "option");
-    row.setAttribute("aria-selected", index === selected ? "true" : "false");
+  const fragment = document.createDocumentFragment();
+  items.forEach((item, index) => fragment.append(createActionRow(item, index)));
+  actions.replaceChildren(fragment);
 
-    const icon = document.createElement("span");
-    icon.className = "action-icon";
+  if (selected === 0) actions.scrollTop = 0;
+  else actions.children[selected]?.scrollIntoView({ block: "nearest" });
 
-    if (item.image) {
-      const image = document.createElement("img");
-      image.src = item.image;
-      image.alt = "";
-      image.draggable = false;
-      image.addEventListener("error", () => {
-        icon.replaceChildren();
-        icon.textContent = item.icon;
-      });
-      icon.append(image);
-    } else {
-      icon.textContent = item.icon;
-    }
-
-    const copy = document.createElement("span");
-    copy.className = "action-copy";
-
-    const title = document.createElement("span");
-    title.className = "action-title";
-    title.textContent = item.title;
-    copy.append(title);
-
-    if (item.detail) {
-      const detail = document.createElement("span");
-      detail.className = "action-detail";
-      detail.textContent = item.detail;
-      copy.append(detail);
-    }
-
-    const category = document.createElement("span");
-    category.className = "action-category";
-    category.textContent = item.category || "Action";
-
-    row.append(icon, copy, category);
-    row.addEventListener("mouseenter", () => {
-      if (selected !== index) selectItem(index);
-    });
-    row.addEventListener("click", () => run(index));
-    actions.append(row);
-  });
-
-  actions.children[selected]?.scrollIntoView({ block: "nearest" });
+  updateFooter();
+  updateScrollThumb();
 }
 
 async function loadStartApps() {
   try {
     const raw = await invoke("get_start_apps");
+    const seen = new Set();
     startApps = raw
       .split(/\r?\n/)
       .map(line => line.split("\x1f"))
@@ -646,7 +788,14 @@ async function loadStartApps() {
         id: id.trim(),
         icon: icon?.trim() || "",
         type: type?.trim() || "Application"
-      }));
+      }))
+      .filter(app => {
+        const key = `${app.name}\x1f${app.id}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .map(app => ({ ...app, search: app.name.toLowerCase() }));
     render();
   } catch (error) {
     console.error(error);
@@ -664,48 +813,409 @@ function hotkeyKey(event) {
   return event.key;
 }
 
-async function refreshCommandHotkeys() {
+function shortcutFromEvent(event) {
+  const key = hotkeyKey(event);
+  if (!key) return "";
+  const parts = [];
+  if (event.ctrlKey) parts.push("Ctrl");
+  if (event.altKey) parts.push("Alt");
+  if (event.shiftKey) parts.push("Shift");
+  if (event.metaKey) parts.push("Super");
+  parts.push(key);
+  return parts.join("+");
+}
+
+async function registerHotkey(hotkey, id, callback, failures, seen) {
+  const normalized = normalizeHotkey(hotkey).toLowerCase();
+  if (!normalized) return;
+  if (seen.has(normalized)) {
+    failures.set(id, "Hotkey is already in use by Hyperact");
+    return;
+  }
+  seen.add(normalized);
+
+  try {
+    await globalShortcut.register(hotkey, event => {
+      if (event.state === "Pressed") {
+        if (pressedHotkeys.has(normalized)) return;
+        pressedHotkeys.add(normalized);
+        callback();
+      } else if (event.state === "Released") {
+        pressedHotkeys.delete(normalized);
+      }
+    });
+    registeredHotkeys.push(hotkey);
+  } catch (error) {
+    failures.set(id, error?.message || String(error));
+  }
+}
+
+async function refreshHotkeys() {
   const failures = new Map();
   if (!globalShortcut) return failures;
 
-  for (const hotkey of registeredCommandHotkeys) {
-    try {
-      await globalShortcut.unregister(hotkey);
-    } catch {}
+  for (const hotkey of registeredHotkeys) {
+    try { await globalShortcut.unregister(hotkey); } catch {}
   }
+  registeredHotkeys = [];
+  pressedHotkeys.clear();
 
-  registeredCommandHotkeys = [];
-  pressedCommandHotkeys.clear();
-  const seen = new Set(["alt+space"]);
+  const seen = new Set(reservedHotkeys);
 
   for (const command of commands) {
     const hotkey = normalizeHotkey(command.hotkey || "");
     if (!hotkey) continue;
+    await registerHotkey(
+      hotkey,
+      command.id,
+      () => runHotkeyCommand(command).catch(console.error),
+      failures,
+      seen
+    );
+  }
 
-    const key = hotkey.toLowerCase();
-    if (seen.has(key)) {
-      failures.set(command.id, "Hotkey is already in use by Hyperact");
-      continue;
-    }
-    seen.add(key);
-
-    try {
-      await globalShortcut.register(hotkey, event => {
-        if (event.state === "Pressed") {
-          if (pressedCommandHotkeys.has(key)) return;
-          pressedCommandHotkeys.add(key);
-          runHotkeyCommand(command).catch(console.error);
-        } else if (event.state === "Released") {
-          pressedCommandHotkeys.delete(key);
-        }
-      });
-      registeredCommandHotkeys.push(hotkey);
-    } catch (error) {
-      failures.set(command.id, error?.message || String(error));
-    }
+  for (const [key, pref] of Object.entries(preferences)) {
+    if (!key.startsWith("app:") && !key.startsWith("system:")) continue;
+    const hotkey = normalizeHotkey(pref.hotkey || "");
+    if (!hotkey) continue;
+    await registerHotkey(
+      hotkey,
+      key,
+      () => launchConfiguredItem(key).catch(console.error),
+      failures,
+      seen
+    );
   }
 
   return failures;
+}
+
+async function launchConfiguredItem(key) {
+  if (key.startsWith("system:")) {
+    await invoke("run_system_action", { action: key.slice(7) });
+  } else if (key.startsWith("app:")) {
+    await invoke("launch_start_app", { appId: key.slice(4) });
+  }
+}
+
+function primaryMenuLabel(item) {
+  if (item.commandMode === "input") return "Run";
+  if (item.itemType === "app") return "Open";
+  if (item.commandMode === "search") return "Use";
+  return "Run";
+}
+
+function actionMenuOptions() {
+  if (!menuState) return [];
+  const target = menuState.item;
+  const options = [{
+    icon: "↵",
+    title: primaryMenuLabel(target),
+    detail: "Enter",
+    run: () => {
+      const runItem = target.run;
+      closeActionMenu(false);
+      runItem();
+    }
+  }];
+
+  if (target.itemKey) {
+    options.push(
+      { icon: "⌨", title: "Set Hotkey", detail: hotkeyFor(target) || "None", run: () => beginMenuSetting("hotkey") },
+      { icon: "@", title: "Set Alias", detail: aliasFor(target) || "None", run: () => beginMenuSetting("alias") }
+    );
+  }
+
+  if (target.command) {
+    options.push({
+      icon: "⚙",
+      title: "Edit Command",
+      detail: "",
+      run: () => {
+        const id = target.command.id;
+        closeActionMenu(false);
+        openCommandEditor(id);
+      }
+    });
+  }
+
+  const query = actionMenuInput.value.trim().toLowerCase();
+  if (!query || menuMode) return options;
+  return options
+    .map(option => ({ ...option, score: matchScore(`${option.title} ${option.detail}`.toLowerCase(), query) }))
+    .filter(option => Number.isFinite(option.score))
+    .sort((a, b) => a.score - b.score);
+}
+
+function createMenuRow(iconText, labelText, detailText = "", selectedRow = false) {
+  const row = document.createElement("button");
+  row.type = "button";
+  row.className = `item-actions-row${selectedRow ? " selected" : ""}`;
+
+  const icon = document.createElement("span");
+  icon.className = "item-actions-icon";
+  icon.textContent = iconText;
+  const label = document.createElement("span");
+  label.className = "item-actions-label";
+  label.textContent = labelText;
+  const detail = document.createElement("span");
+  detail.className = "item-actions-detail";
+  detail.textContent = detailText;
+  row.append(icon, label, detail);
+  return row;
+}
+
+function renderActionMenu() {
+  if (!menuState) return;
+
+  actionMenuTitle.textContent = menuMode === "alias"
+    ? `Alias · ${menuState.item.title}`
+    : menuMode === "hotkey"
+      ? `Hotkey · ${menuState.item.title}`
+      : menuState.item.title;
+
+  if (menuMode === "alias") {
+    actionMenuHint.textContent = "Enter to save";
+    const row = createMenuRow("@", actionMenuInput.value.trim() ? "Save Alias" : "Clear Alias", "", true);
+    row.addEventListener("click", saveAlias);
+    actionMenuList.replaceChildren(row);
+    return;
+  }
+
+  if (menuMode === "hotkey") {
+    actionMenuHint.textContent = "Enter to save · Esc to cancel";
+    const row = createMenuRow("⌨", pendingHotkey || "No hotkey", "Backspace clears", true);
+    actionMenuList.replaceChildren(row);
+    return;
+  }
+
+  actionMenuHint.textContent = "Ctrl K";
+  const options = actionMenuOptions();
+  menuSelected = Math.min(menuSelected, Math.max(0, options.length - 1));
+  const fragment = document.createDocumentFragment();
+
+  if (!options.length) {
+    const empty = document.createElement("div");
+    empty.className = "item-actions-hint";
+    empty.style.padding = "12px 10px 16px";
+    empty.textContent = "No actions";
+    fragment.append(empty);
+  } else {
+    options.forEach((option, index) => {
+      const row = createMenuRow(option.icon, option.title, option.detail, index === menuSelected);
+      row.addEventListener("mouseenter", () => {
+        menuSelected = index;
+        renderActionMenu();
+      });
+      row.addEventListener("click", option.run);
+      fragment.append(row);
+    });
+  }
+
+  actionMenuList.replaceChildren(fragment);
+}
+
+function openActionMenu(item) {
+  if (!item) return;
+  if (menuState) closeActionMenu(false);
+  menuState = { item: { ...item } };
+  menuMode = "";
+  menuSelected = 0;
+  pendingHotkey = "";
+  originalHotkey = "";
+  actionMenuInput.readOnly = false;
+  actionMenuInput.value = "";
+  actionMenuInput.placeholder = "Search for actions…";
+  actionMenu.hidden = false;
+  renderActionMenu();
+  updateFooter();
+  actionMenuInput.focus();
+}
+
+function closeActionMenu(focusMain = true) {
+  if (!menuState) return;
+  const restoreHotkeys = menuMode === "hotkey";
+  menuState = null;
+  menuMode = "";
+  menuSelected = 0;
+  pendingHotkey = "";
+  originalHotkey = "";
+  actionMenuInput.readOnly = false;
+  actionMenuInput.value = "";
+  actionMenu.hidden = true;
+  if (restoreHotkeys) refreshHotkeys().catch(console.error);
+  updateFooter();
+  if (focusMain) input.focus();
+}
+
+function returnToActionMenu() {
+  menuMode = "";
+  menuSelected = 0;
+  pendingHotkey = "";
+  originalHotkey = "";
+  actionMenuInput.readOnly = false;
+  actionMenuInput.value = "";
+  actionMenuInput.placeholder = "Search for actions…";
+  renderActionMenu();
+  updateFooter();
+  actionMenuInput.focus();
+}
+
+async function beginMenuSetting(mode) {
+  if (!menuState?.item) return;
+  menuMode = mode;
+  menuSelected = 0;
+
+  if (mode === "alias") {
+    actionMenuInput.readOnly = false;
+    actionMenuInput.value = aliasFor(menuState.item);
+    actionMenuInput.placeholder = "Type alias…";
+    renderActionMenu();
+    updateFooter();
+    actionMenuInput.focus();
+    actionMenuInput.select();
+    return;
+  }
+
+  originalHotkey = hotkeyFor(menuState.item);
+  pendingHotkey = originalHotkey;
+  actionMenuInput.readOnly = true;
+  actionMenuInput.value = pendingHotkey;
+  actionMenuInput.placeholder = "Press shortcut…";
+  if (originalHotkey) {
+    try { await globalShortcut.unregister(originalHotkey); } catch {}
+  }
+  renderActionMenu();
+  updateFooter();
+  actionMenuInput.focus();
+}
+
+function saveAlias() {
+  if (!menuState?.item?.itemKey) return;
+  setPreference(menuState.item.itemKey, "alias", actionMenuInput.value.trim());
+  render();
+  returnToActionMenu();
+}
+
+async function setItemHotkey(target, hotkey) {
+  const previous = hotkeyFor(target);
+  const failureKey = target.command ? target.command.id : target.itemKey;
+
+  if (target.command) {
+    commands = commands.map(command => command.id === target.command.id ? { ...command, hotkey } : command);
+    target.command.hotkey = hotkey;
+    persistCommands();
+  } else {
+    setPreference(target.itemKey, "hotkey", hotkey);
+  }
+
+  const failures = await refreshHotkeys();
+  if (!failures.has(failureKey)) return true;
+
+  if (target.command) {
+    commands = commands.map(command => command.id === target.command.id ? { ...command, hotkey: previous } : command);
+    target.command.hotkey = previous;
+    persistCommands();
+  } else {
+    setPreference(target.itemKey, "hotkey", previous);
+  }
+  await refreshHotkeys();
+  return false;
+}
+
+async function commitPendingHotkey() {
+  if (!menuState?.item || menuMode !== "hotkey") return;
+  const candidate = pendingHotkey;
+  if (candidate && reservedHotkeys.has(candidate.toLowerCase())) {
+    actionMenuHint.textContent = "Reserved by Hyperact";
+    return;
+  }
+
+  const success = await setItemHotkey(menuState.item, candidate);
+  if (!success) {
+    actionMenuHint.textContent = "Already in use";
+    if (originalHotkey) {
+      try { await globalShortcut.unregister(originalHotkey); } catch {}
+    }
+    actionMenuInput.focus();
+    return;
+  }
+
+  render();
+  returnToActionMenu();
+}
+
+function cancelHotkeySetting() {
+  refreshHotkeys().catch(console.error);
+  returnToActionMenu();
+}
+
+function updateFooter() {
+  if (footer.hidden || !commandEditor.hidden) return;
+
+  if (menuState) {
+    if (menuMode === "hotkey") {
+      footer.replaceChildren(footerPart("↵", "save"), footerPart("⌫", "clear"), footerPart("esc", "cancel"));
+    } else if (menuMode === "alias") {
+      footer.replaceChildren(footerPart("↵", "save"), footerPart("esc", "back"));
+    } else {
+      footer.replaceChildren(footerPart("↵", "select"), footerPart("esc", "close actions"));
+    }
+    return;
+  }
+
+  if (activeCommand && promptTarget === null) {
+    footer.replaceChildren(
+      footerPart("↵", "run"),
+      footerPart("⇧↵", "again"),
+      footerPart("Ctrl K", "actions"),
+      footerPart("esc", "back")
+    );
+    return;
+  }
+
+  const item = items[selected];
+  if (item) {
+    footer.replaceChildren(
+      footerPart("↑↓", "navigate"),
+      footerPart("↵", item.commandMode === "search" ? "use" : "run"),
+      footerPart("Ctrl K", "actions"),
+      footerPart("esc", "back")
+    );
+  }
+}
+
+function footerPart(keys, label) {
+  const part = document.createElement("span");
+  const key = document.createElement("kbd");
+  key.textContent = keys;
+  part.append(key, document.createTextNode(` ${label}`));
+  return part;
+}
+
+function updateScrollThumb() {
+  if (actions.hidden || actions.scrollHeight <= actions.clientHeight) {
+    scrollThumb.hidden = true;
+    return;
+  }
+
+  scrollThumb.hidden = false;
+  const inset = 5;
+  const trackHeight = actions.clientHeight - inset * 2;
+  const height = Math.max(24, trackHeight * actions.clientHeight / actions.scrollHeight);
+  const maxScroll = actions.scrollHeight - actions.clientHeight;
+  const travel = trackHeight - height;
+  const y = maxScroll ? travel * actions.scrollTop / maxScroll : 0;
+  scrollThumb.style.height = `${height}px`;
+  scrollThumb.style.top = `${actions.offsetTop + inset + y}px`;
+}
+
+function showScrollThumb() {
+  updateScrollThumb();
+  if (scrollThumb.hidden) return;
+  scrollThumb.classList.add("visible");
+  clearTimeout(scrollFadeTimer);
+  scrollFadeTimer = setTimeout(() => scrollThumb.classList.remove("visible"), 650);
 }
 
 function choiceValue(group) {
@@ -723,20 +1233,19 @@ function setCommandStatus(message = "", type = "") {
   clearTimeout(editorStatusTimer);
   commandStatus.textContent = message;
   commandStatus.className = `command-status${type ? ` ${type}` : ""}`;
-
   if (message && type === "success") {
     editorStatusTimer = setTimeout(() => setCommandStatus(), 1400);
   }
 }
 
 function populateCommandList(selectedId = editingCommandId) {
-  commandList.replaceChildren();
+  const fragment = document.createDocumentFragment();
 
   if (!commands.length) {
     const empty = document.createElement("div");
     empty.className = "command-list-empty";
     empty.textContent = "No commands yet";
-    commandList.append(empty);
+    commandList.replaceChildren(empty);
     return;
   }
 
@@ -748,10 +1257,8 @@ function populateCommandList(selectedId = editingCommandId) {
     const icon = document.createElement("span");
     icon.className = "command-list-icon";
     icon.textContent = "N";
-
     const copy = document.createElement("span");
     copy.className = "command-list-copy";
-
     const name = document.createElement("div");
     name.className = "command-list-name";
     name.textContent = command.name;
@@ -766,14 +1273,17 @@ function populateCommandList(selectedId = editingCommandId) {
 
     row.append(icon, copy);
     row.addEventListener("click", () => loadEditorCommand(command.id));
-    commandList.append(row);
+    fragment.append(row);
   }
+
+  commandList.replaceChildren(fragment);
 }
 
 function loadEditorCommand(id) {
   const command = commands.find(item => item.id === id);
   editingCommandId = command?.id || "";
   commandName.value = command?.name || "";
+  commandMatch.value = command?.match || "";
   commandHotkey.value = command?.hotkey || "";
   setChoice(commandInputMode, command?.inputMode === "selected" ? "selected" : "focused");
   setChoice(commandMissingInput, command?.missingInput === "nothing" ? "nothing" : "prompt");
@@ -784,16 +1294,13 @@ function loadEditorCommand(id) {
   populateCommandList(editingCommandId);
   commandName.focus();
   commandName.select();
+  window.hyperactCommandLoaded?.();
 }
 
 function openCommandEditor(id = "") {
-  if (window.hyperactDeferredPromptLocked) resetDeferredPrompt();
   deferredRun++;
-  activeCommand = null;
-  promptTarget = null;
-  promptSelectAll = false;
-  promptFocus = 0;
-  commandError = "";
+  closeActionMenu(false);
+  clearPromptState();
   input.value = "Commands";
   input.placeholder = "Commands";
   input.disabled = true;
@@ -804,6 +1311,7 @@ function openCommandEditor(id = "") {
   commandEditor.hidden = false;
   palette.classList.add("command-mode");
   loadEditorCommand(id || commands[0]?.id || "");
+  window.hyperactEditorVisibilityChanged?.(true);
 }
 
 function closeCommandEditor() {
@@ -819,12 +1327,14 @@ function closeCommandEditor() {
   setCommandStatus();
   render();
   input.focus();
+  window.hyperactEditorVisibilityChanged?.(false);
 }
 
 async function saveEditorCommand() {
   const name = commandName.value.trim();
   const code = commandCode.value.trim();
   const hotkey = normalizeHotkey(commandHotkey.value);
+  const match = commandMatch.value.trim();
   const inputMode = choiceValue(commandInputMode) === "selected" ? "selected" : "focused";
   const missingInput = choiceValue(commandMissingInput) === "nothing" ? "nothing" : "prompt";
   const outputMode = choiceValue(commandOutputMode) === "paste" ? "paste" : "type";
@@ -834,49 +1344,60 @@ async function saveEditorCommand() {
     commandName.focus();
     return;
   }
-
   if (!code) {
     setCommandStatus("Add Node.js code", "error");
     commandCode.focus();
     return;
   }
+  if (match) {
+    try { new RegExp(match); }
+    catch {
+      setCommandStatus("Input pattern is not a valid regular expression", "error");
+      commandMatch.focus();
+      return;
+    }
+  }
 
   const existing = commands.find(command => command.id === editingCommandId);
   const id = existing?.id || crypto.randomUUID();
-  const next = { id, name, hotkey, inputMode, missingInput, outputMode, code };
-
-  if (existing) {
-    commands = commands.map(command => command.id === id ? next : command);
-  } else {
-    commands.push(next);
-  }
+  const next = { id, name, hotkey, match, inputMode, missingInput, outputMode, code };
+  if (existing) commands = commands.map(command => command.id === id ? next : command);
+  else commands.push(next);
 
   editingCommandId = id;
   persistCommands();
   populateCommandList(id);
   commandDelete.hidden = false;
 
-  const failures = await refreshCommandHotkeys();
+  const failures = await refreshHotkeys();
   if (failures.has(id)) {
     setCommandStatus(`Saved · hotkey failed: ${failures.get(id)}`, "error");
     return;
   }
-
   setCommandStatus("Saved", "success");
 }
 
 async function deleteEditorCommand() {
   if (!editingCommandId) return;
-
   const index = commands.findIndex(command => command.id === editingCommandId);
   if (index < 0) return;
 
   commands.splice(index, 1);
   persistCommands();
-  await refreshCommandHotkeys();
-
+  await refreshHotkeys();
   const next = commands[Math.min(index, commands.length - 1)];
   loadEditorCommand(next?.id || "");
+}
+
+function scheduleBlurHide() {
+  clearTimeout(blurTimer);
+  blurTimer = setTimeout(async () => {
+    try {
+      if (await currentWindow.isFocused()) return;
+    } catch {}
+    closeActionMenu(false);
+    hideLauncher().catch(console.error);
+  }, 70);
 }
 
 input.addEventListener("input", () => {
@@ -885,9 +1406,8 @@ input.addEventListener("input", () => {
   render();
 });
 
-dragHandle.addEventListener("mousedown", event => {
-  if (event.button === 0) currentWindow.startDragging();
-});
+actions.addEventListener("scroll", showScrollThumb, { passive: true });
+window.addEventListener("resize", updateScrollThumb);
 
 for (const group of [commandInputMode, commandMissingInput, commandOutputMode]) {
   group.addEventListener("click", event => {
@@ -900,39 +1420,120 @@ commandNew.addEventListener("click", () => loadEditorCommand(""));
 commandCancel.addEventListener("click", closeCommandEditor);
 commandSave.addEventListener("click", () => saveEditorCommand().catch(console.error));
 commandDelete.addEventListener("click", () => deleteEditorCommand().catch(console.error));
+
+commandHotkey.addEventListener("focus", () => {
+  editorHotkeyOriginal = commandHotkey.value;
+  if (editorHotkeyOriginal) globalShortcut.unregister(editorHotkeyOriginal).catch(() => {});
+});
+
+commandHotkey.addEventListener("blur", () => {
+  refreshHotkeys().catch(console.error);
+});
+
 commandHotkey.addEventListener("keydown", event => {
   event.preventDefault();
   event.stopPropagation();
 
+  if (event.key === "Escape") {
+    commandHotkey.value = editorHotkeyOriginal;
+    commandHotkey.blur();
+    return;
+  }
+  if (event.key === "Enter") {
+    commandHotkey.blur();
+    return;
+  }
   if (event.key === "Backspace" || event.key === "Delete") {
     commandHotkey.value = "";
     return;
   }
 
-  if (event.key === "Escape") {
-    commandHotkey.blur();
+  const hotkey = shortcutFromEvent(event);
+  if (hotkey && !reservedHotkeys.has(hotkey.toLowerCase())) commandHotkey.value = hotkey;
+});
+
+actionMenuInput.addEventListener("input", () => {
+  menuSelected = 0;
+  renderActionMenu();
+});
+
+actionMenuInput.addEventListener("keydown", event => {
+  if (!menuState) return;
+
+  if (menuMode === "hotkey") {
+    event.preventDefault();
+    event.stopPropagation();
+
+    if (event.key === "Escape") {
+      cancelHotkeySetting();
+      return;
+    }
+    if (event.key === "Enter") {
+      commitPendingHotkey().catch(console.error);
+      return;
+    }
+    if (event.key === "Backspace" || event.key === "Delete") {
+      pendingHotkey = "";
+      actionMenuInput.value = "";
+      renderActionMenu();
+      return;
+    }
+
+    const hotkey = shortcutFromEvent(event);
+    if (!hotkey) return;
+    if (reservedHotkeys.has(hotkey.toLowerCase())) {
+      actionMenuHint.textContent = "Reserved by Hyperact";
+      return;
+    }
+    pendingHotkey = hotkey;
+    actionMenuInput.value = hotkey;
+    renderActionMenu();
     return;
   }
 
-  const key = hotkeyKey(event);
-  if (!key) return;
+  if (event.key === "Escape") {
+    event.preventDefault();
+    event.stopPropagation();
+    if (menuMode === "alias") returnToActionMenu();
+    else closeActionMenu(true);
+    return;
+  }
 
-  const parts = [];
-  if (event.ctrlKey) parts.push("Ctrl");
-  if (event.altKey) parts.push("Alt");
-  if (event.shiftKey) parts.push("Shift");
-  if (event.metaKey) parts.push("Super");
-  parts.push(key);
-  commandHotkey.value = parts.join("+");
-  commandHotkey.blur();
-});
+  if (menuMode === "alias" && event.key === "Enter") {
+    event.preventDefault();
+    event.stopPropagation();
+    saveAlias();
+    return;
+  }
 
-window.addEventListener("focus", () => {
-  if (commandEditor.hidden && !window.hyperactDeferredPromptLocked) {
-    input.focus();
-    input.select();
+  if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+    event.preventDefault();
+    event.stopPropagation();
+    const count = actionMenuOptions().length;
+    if (!count) return;
+    menuSelected = (menuSelected + (event.key === "ArrowDown" ? 1 : -1) + count) % count;
+    renderActionMenu();
+    actionMenuList.children[menuSelected]?.scrollIntoView({ block: "nearest" });
+    return;
+  }
+
+  if (event.key === "Enter") {
+    event.preventDefault();
+    event.stopPropagation();
+    actionMenuOptions()[menuSelected]?.run();
   }
 });
+
+document.addEventListener("mousedown", event => {
+  const target = event.target instanceof Element ? event.target : null;
+  if (!target) return;
+
+  if (menuState && !actionMenu.contains(target)) closeActionMenu(false);
+  if (event.button !== 0) return;
+
+  const noDrag = "input, textarea, button, select, option, a, label, pre, [contenteditable='true'], .command-resizer, .item-actions-popover";
+  if (!target.closest(noDrag)) currentWindow.startDragging().catch(console.error);
+}, true);
 
 document.addEventListener("keydown", event => {
   if (!commandEditor.hidden) {
@@ -949,9 +1550,24 @@ document.addEventListener("keydown", event => {
     return;
   }
 
+  if (event.ctrlKey && !event.altKey && !event.metaKey && event.key.toLowerCase() === "k") {
+    event.preventDefault();
+    if (menuState) closeActionMenu(true);
+    else if (items[selected]) openActionMenu(items[selected]);
+    return;
+  }
+
+  if (promptLocked && !["Control", "Shift", "Alt", "Meta", "Escape"].includes(event.key)) {
+    event.preventDefault();
+    return;
+  }
+
   if (event.key === "Enter" && activeCommand && promptTarget !== null) {
     event.preventDefault();
     runPromptCommand(event.shiftKey).catch(console.error);
+  } else if (event.key === "Enter" && event.shiftKey && activeCommand) {
+    event.preventDefault();
+    runCommandMode(true).catch(console.error);
   } else if (event.key === "ArrowDown" && items.length) {
     event.preventDefault();
     selectItem(selected + 1);
@@ -964,29 +1580,12 @@ document.addEventListener("keydown", event => {
   } else if (event.key === "Escape") {
     event.preventDefault();
     if (promptTarget !== null) {
-      if (window.hyperactDeferredPromptLocked) {
-        resetDeferredPrompt();
-      } else {
-        deferredRun++;
-        window.hyperactKeepVisible = false;
-        input.readOnly = false;
-        promptTarget = null;
-        promptSelectAll = false;
-        promptFocus = 0;
-        activeCommand = null;
-        commandError = "";
-        input.value = "";
-        input.placeholder = defaultPlaceholder;
-        selected = 0;
-        render();
-      }
+      deferredRun++;
+      clearPromptState();
+      render();
       input.focus();
     } else if (activeCommand) {
-      activeCommand = null;
-      commandError = "";
-      input.value = "";
-      input.placeholder = defaultPlaceholder;
-      render();
+      exitCommandMode();
     } else if (input.value) {
       setInput("");
     } else {
@@ -995,7 +1594,23 @@ document.addEventListener("keydown", event => {
   }
 });
 
+currentWindow.onFocusChanged(({ payload: focused }) => {
+  clearTimeout(blurTimer);
+  if (!focused) scheduleBlurHide();
+});
+
+window.addEventListener("blur", scheduleBlurHide);
+window.addEventListener("focus", () => {
+  clearTimeout(blurTimer);
+  if (!commandEditor.hidden) return;
+  if (menuState) actionMenuInput.focus();
+  else {
+    input.focus();
+    input.select();
+  }
+});
+
 input.focus();
 render();
 loadStartApps();
-refreshCommandHotkeys().catch(console.error);
+refreshHotkeys().catch(console.error);
