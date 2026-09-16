@@ -26,6 +26,8 @@
   document.head.append(style);
 
   let pendingHotkey = null;
+  let originalHotkey = "";
+  let hotkeyEditing = false;
   let replayingHotkey = false;
 
   function preferences() {
@@ -57,11 +59,36 @@
     return parts.join("+");
   }
 
-  function showPendingHotkey(value) {
+  function showPendingHotkey() {
+    const value = pendingHotkey ?? "";
     menuInput.value = value;
     const label = popover.querySelector(".item-actions-list .item-actions-label");
     if (label) label.textContent = value || "No hotkey";
+    const detail = popover.querySelector(".item-actions-list .item-actions-detail");
+    if (detail) detail.textContent = "Backspace clears";
     menuHint.textContent = "Enter to save · Esc to cancel";
+  }
+
+  async function suspendOriginalHotkey() {
+    if (hotkeyEditing || !hotkeyMode()) return;
+    hotkeyEditing = true;
+    originalHotkey = menuInput.value.trim();
+    pendingHotkey = originalHotkey;
+    showPendingHotkey();
+
+    if (originalHotkey) {
+      try {
+        await globalShortcut.unregister(originalHotkey);
+      } catch {}
+    }
+  }
+
+  function restoreRegisteredHotkeys() {
+    if (!hotkeyEditing) return;
+    hotkeyEditing = false;
+    pendingHotkey = null;
+    originalHotkey = "";
+    refreshCommandHotkeys().catch(console.error);
   }
 
   function replayShortcut(value) {
@@ -96,8 +123,10 @@
   menuInput.addEventListener("keydown", event => {
     if (replayingHotkey || !hotkeyMode()) return;
 
+    if (!hotkeyEditing) suspendOriginalHotkey().catch(console.error);
+
     if (event.key === "Escape") {
-      pendingHotkey = null;
+      restoreRegisteredHotkeys();
       return;
     }
 
@@ -105,32 +134,42 @@
     event.stopImmediatePropagation();
 
     if (event.key === "Enter") {
-      replayShortcut(pendingHotkey === null ? menuInput.value : pendingHotkey);
-      pendingHotkey = null;
+      replayShortcut(pendingHotkey ?? originalHotkey);
       return;
     }
 
     if (event.key === "Backspace" || event.key === "Delete") {
       pendingHotkey = "";
-      showPendingHotkey("");
+      showPendingHotkey();
       return;
     }
 
     const hotkey = shortcutFromEvent(event);
     if (!hotkey) return;
+    if (["alt+space", "ctrl+k"].includes(hotkey.toLowerCase())) {
+      menuHint.textContent = "Reserved by Hyperact";
+      return;
+    }
+
     pendingHotkey = hotkey;
-    showPendingHotkey(hotkey);
+    showPendingHotkey();
   }, true);
 
   new MutationObserver(() => {
     if (!hotkeyMode()) {
-      pendingHotkey = null;
+      restoreRegisteredHotkeys();
       return;
     }
-    if (menuHint.textContent !== "Enter to save · Esc to cancel") {
-      menuHint.textContent = "Enter to save · Esc to cancel";
+
+    if (!hotkeyEditing) {
+      suspendOriginalHotkey().catch(console.error);
+      return;
     }
-  }).observe(popover, { childList: true, subtree: true, characterData: true });
+
+    if (menuHint.textContent === "Already in use" && originalHotkey) {
+      globalShortcut.unregister(originalHotkey).catch(() => {});
+    }
+  }).observe(popover, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ["hidden"] });
 
   function decorateRows() {
     if (typeof items === "undefined" || typeof actions === "undefined") return;
