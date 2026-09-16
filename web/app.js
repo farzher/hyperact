@@ -29,16 +29,14 @@ const { invoke } = window.__TAURI__.core;
 const currentWindow = window.__TAURI__.window.getCurrentWindow();
 const globalShortcut = window.__TAURI__.globalShortcut;
 const defaultPlaceholder = "Search apps and actions…";
-const commandStorageKey = "hyperact.commands";
-const preferenceStorageKey = "hyperact.itemPreferences";
 const reservedHotkeys = new Set(["alt+space", "ctrl+k"]);
 const maxResults = 60;
 
 let items = [];
 let selected = 0;
 let startApps = [];
-let commands = loadCommands();
-let preferences = loadPreferences();
+let commands = [];
+let preferences = {};
 let activeCommand = null;
 let commandSearchQuery = "";
 let commandError = "";
@@ -88,43 +86,16 @@ const systemActions = [
   { icon: "○", title: "Shut down", detail: "Shut down this PC", id: "shutdown", keywords: "shutdown power off", exact: true }
 ].map(item => ({ ...item, search: `${item.title} ${item.keywords}`.toLowerCase() }));
 
-function loadCommands() {
-  try {
-    const saved = JSON.parse(localStorage.getItem(commandStorageKey) || "[]");
-    if (!Array.isArray(saved)) return [];
-
-    return saved
-      .filter(command => command?.id && command?.name && typeof command.code === "string")
-      .map(command => ({
-        id: command.id,
-        name: command.name,
-        hotkey: command.hotkey || "",
-        match: command.match || "",
-        inputMode: command.inputMode === "selected" ? "selected" : "focused",
-        missingInput: command.missingInput === "nothing" ? "nothing" : "prompt",
-        outputMode: command.outputMode === "paste" ? "paste" : "type",
-        code: command.code
-      }));
-  } catch {
-    return [];
-  }
-}
-
-function loadPreferences() {
-  try {
-    const saved = JSON.parse(localStorage.getItem(preferenceStorageKey) || "{}");
-    return saved && typeof saved === "object" && !Array.isArray(saved) ? saved : {};
-  } catch {
-    return {};
-  }
-}
-
 function persistCommands() {
-  localStorage.setItem(commandStorageKey, JSON.stringify(commands));
+  if (!window.hyperactConfig) return;
+  window.hyperactConfig.commands = commands;
+  window.saveHyperactConfig?.().catch(console.error);
 }
 
 function persistPreferences() {
-  localStorage.setItem(preferenceStorageKey, JSON.stringify(preferences));
+  if (!window.hyperactConfig) return;
+  window.hyperactConfig.preferences = preferences;
+  window.saveHyperactConfig?.().catch(console.error);
 }
 
 function preference(key) {
