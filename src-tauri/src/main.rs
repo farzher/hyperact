@@ -3,6 +3,7 @@
 use tauri::{AppHandle, Manager};
 use tauri_plugin_global_shortcut::{Code, Modifiers, ShortcutState};
 
+mod everything;
 #[cfg(target_os = "windows")]
 mod windows_input;
 #[cfg(target_os = "windows")]
@@ -490,7 +491,10 @@ fn main() {
             resume_hotkey_command,
             submit_prompt_result,
             modifiers_held,
-            non_ctrl_modifiers_held
+            non_ctrl_modifiers_held,
+            everything::search_files,
+            everything::open_path,
+            everything::reveal_path
         ])
         .run(tauri::generate_context!())
         .expect("error while running Hyperact");
