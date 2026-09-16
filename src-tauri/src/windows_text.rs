@@ -9,11 +9,11 @@ use std::{
 
 use uiautomation::{types::{ControlType, Point}, UIAutomation};
 
+use crate::windows_input::{self, KeyboardEvent};
+
 const CF_UNICODETEXT: u32 = 13;
 const GMEM_MOVEABLE: u32 = 0x0002;
-const INPUT_KEYBOARD: u32 = 1;
 const KEYEVENTF_KEYUP: u32 = 0x0002;
-const KEYEVENTF_UNICODE: u32 = 0x0004;
 const VK_CONTROL: u8 = 0x11;
 const VK_SHIFT: i32 = 0x10;
 const VK_MENU: i32 = 0x12;
@@ -34,39 +34,6 @@ static FOCUS_SNAPSHOT: OnceLock<Mutex<Option<FocusSnapshot>>> = OnceLock::new();
 
 fn focus_snapshot() -> &'static Mutex<Option<FocusSnapshot>> {
     FOCUS_SNAPSHOT.get_or_init(|| Mutex::new(None))
-}
-
-#[repr(C)]
-#[derive(Clone, Copy)]
-struct MouseInput {
-    dx: i32,
-    dy: i32,
-    mouse_data: u32,
-    flags: u32,
-    time: u32,
-    extra_info: usize,
-}
-
-#[repr(C)]
-#[derive(Clone, Copy)]
-struct KeyboardInput {
-    virtual_key: u16,
-    scan_code: u16,
-    flags: u32,
-    time: u32,
-    extra_info: usize,
-}
-
-#[repr(C)]
-union InputData {
-    mouse: MouseInput,
-    keyboard: KeyboardInput,
-}
-
-#[repr(C)]
-struct Input {
-    kind: u32,
-    data: InputData,
 }
 
 #[repr(C)]
@@ -106,7 +73,6 @@ unsafe extern "system" {
     fn GetGUIThreadInfo(thread_id: u32, info: *mut GuiThreadInfo) -> i32;
     fn AttachThreadInput(from: u32, to: u32, attach: i32) -> i32;
     fn SetFocus(window: *mut c_void) -> *mut c_void;
-    fn SendInput(count: u32, inputs: *const Input, size: i32) -> u32;
     fn keybd_event(key: u8, scan: u8, flags: u32, extra_info: usize);
 }
 
@@ -432,45 +398,21 @@ pub fn type_text(value: &str) -> Result<(), String> {
     let mut inputs = Vec::with_capacity(value.encode_utf16().count() * 2);
 
     for character in value.encode_utf16() {
-        inputs.push(Input {
-            kind: INPUT_KEYBOARD,
-            data: InputData {
-                keyboard: KeyboardInput {
-                    virtual_key: 0,
-                    scan_code: character,
-                    flags: KEYEVENTF_UNICODE,
-                    time: 0,
-                    extra_info: 0,
-                },
-            },
+        inputs.push(KeyboardEvent {
+            virtual_key: 0,
+            scan_code: character,
+            flags: windows_input::UNICODE,
+            extra_info: 0,
         });
-        inputs.push(Input {
-            kind: INPUT_KEYBOARD,
-            data: InputData {
-                keyboard: KeyboardInput {
-                    virtual_key: 0,
-                    scan_code: character,
-                    flags: KEYEVENTF_UNICODE | KEYEVENTF_KEYUP,
-                    time: 0,
-                    extra_info: 0,
-                },
-            },
+        inputs.push(KeyboardEvent {
+            virtual_key: 0,
+            scan_code: character,
+            flags: windows_input::UNICODE | windows_input::KEY_UP,
+            extra_info: 0,
         });
     }
 
-    if inputs.is_empty() {
-        return Ok(());
-    }
-
-    let sent = unsafe {
-        SendInput(
-            inputs.len() as u32,
-            inputs.as_ptr(),
-            std::mem::size_of::<Input>() as i32,
-        )
-    };
-
-    if sent == inputs.len() as u32 {
+    if windows_input::send_keyboard(&inputs) {
         Ok(())
     } else {
         Err("Windows could not type the command result".into())

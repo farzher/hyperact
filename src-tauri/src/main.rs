@@ -4,6 +4,8 @@ use tauri::{AppHandle, Manager};
 use tauri_plugin_global_shortcut::{Code, Modifiers, ShortcutState};
 
 #[cfg(target_os = "windows")]
+mod windows_input;
+#[cfg(target_os = "windows")]
 mod windows_text;
 
 fn toggle_launcher(app: &AppHandle) {
