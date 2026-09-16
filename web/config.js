@@ -52,15 +52,6 @@
       commands = config.commands;
       preferences = config.preferences;
 
-      persistCommands = () => {
-        config.commands = commands;
-        window.saveHyperactConfig().catch(console.error);
-      };
-      persistPreferences = () => {
-        config.preferences = preferences;
-        window.saveHyperactConfig().catch(console.error);
-      };
-
       if (!raw.trim()) await window.saveHyperactConfig();
 
       render();
