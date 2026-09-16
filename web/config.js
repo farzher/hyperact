@@ -37,34 +37,10 @@
     return value && typeof value === "object" && !Array.isArray(value) ? value : {};
   }
 
-  function legacyHistory() {
-    try {
-      return objectOrEmpty(JSON.parse(localStorage.getItem("hyperact.fileHistory") || "{}"));
-    } catch {
-      return {};
-    }
-  }
-
-  function legacySplit() {
-    const value = Number(localStorage.getItem("hyperact.commandEditorSplit"));
-    return Number.isFinite(value) && value > 0 ? value : 0.64;
-  }
-
   window.hyperactConfigReady = (async () => {
     try {
       const raw = await invoke("load_config");
-      let loaded;
-
-      if (raw.trim()) {
-        loaded = JSON.parse(raw);
-      } else {
-        loaded = {
-          commands,
-          preferences,
-          fileHistory: legacyHistory(),
-          editorSplit: legacySplit()
-        };
-      }
+      const loaded = raw.trim() ? JSON.parse(raw) : config;
 
       config.commands = normalizeCommands(loaded.commands);
       config.preferences = objectOrEmpty(loaded.preferences);
@@ -85,11 +61,7 @@
         window.saveHyperactConfig().catch(console.error);
       };
 
-      await window.saveHyperactConfig();
-      localStorage.removeItem("hyperact.commands");
-      localStorage.removeItem("hyperact.itemPreferences");
-      localStorage.removeItem("hyperact.fileHistory");
-      localStorage.removeItem("hyperact.commandEditorSplit");
+      if (!raw.trim()) await window.saveHyperactConfig();
 
       render();
       await refreshHotkeys();
