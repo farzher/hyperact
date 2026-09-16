@@ -1,24 +1,14 @@
 (() => {
-  const historyKey = "hyperact.fileHistory";
   const fileLimit = 8;
   let fileQuery = "";
   let fileResults = [];
   let searchTimer;
   let searchVersion = 0;
   let unavailableUntil = 0;
-  let history = loadHistory();
 
-  function loadHistory() {
-    try {
-      const value = JSON.parse(localStorage.getItem(historyKey) || "{}");
-      return value && typeof value === "object" && !Array.isArray(value) ? value : {};
-    } catch {
-      return {};
-    }
-  }
-
-  function saveHistory() {
-    localStorage.setItem(historyKey, JSON.stringify(history));
+  function history() {
+    if (!window.hyperactConfig.fileHistory) window.hyperactConfig.fileHistory = {};
+    return window.hyperactConfig.fileHistory;
   }
 
   function fullPath(file) {
@@ -30,7 +20,7 @@
   }
 
   function historyBonus(path) {
-    const entry = history[path.toLowerCase()];
+    const entry = history()[path.toLowerCase()];
     if (!entry) return 0;
     const uses = Math.min(0.7, Math.log2((entry.count || 0) + 1) * 0.18);
     const age = Date.now() - (entry.last || 0);
@@ -39,16 +29,19 @@
   }
 
   function remember(path) {
+    const store = history();
     const key = path.toLowerCase();
-    const current = history[key] || { count: 0, last: 0 };
-    history[key] = { count: current.count + 1, last: Date.now() };
+    const current = store[key] || { count: 0, last: 0 };
+    store[key] = { count: current.count + 1, last: Date.now() };
 
-    const keys = Object.keys(history);
+    const keys = Object.keys(store);
     if (keys.length > 200) {
-      keys.sort((a, b) => (history[b].last || 0) - (history[a].last || 0));
-      history = Object.fromEntries(keys.slice(0, 200).map(key => [key, history[key]]));
+      keys.sort((a, b) => (store[b].last || 0) - (store[a].last || 0));
+      window.hyperactConfig.fileHistory = Object.fromEntries(
+        keys.slice(0, 200).map(key => [key, store[key]])
+      );
     }
-    saveHistory();
+    window.saveHyperactConfig?.().catch(console.error);
   }
 
   function fileScore(file, query) {
@@ -56,7 +49,6 @@
     const dot = name.lastIndexOf(".");
     const stem = dot > 0 ? name.slice(0, dot) : name;
     const nameScore = Math.min(matchScore(name, query), matchScore(stem, query));
-    const lowerPath = file.path.toLowerCase();
     const common = /\\(desktop|documents|downloads|pictures|videos|music|onedrive)(\\|$)/i.test(file.path) ? 0.2 : 0;
     const depth = Math.max(0, file.path.split("\\").length - 3) * 0.025;
     const folder = file.folder ? 0.06 : 0;
