@@ -8,9 +8,6 @@
   <link rel="stylesheet" href="command-preview.css">
   <script src="app.js" defer></script>
   <script src="command-preview.js" defer></script>
-  <script src="command-ux.js" defer></script>
-  <script src="item-actions.js" defer></script>
-  <script src="item-actions-polish.js" defer></script>
 </head>
 <body>
   <main class="palette">
@@ -27,6 +24,18 @@
     <div id="actions" class="actions" role="listbox"></div>
     <div id="scroll-thumb" class="scroll-thumb" aria-hidden="true"></div>
 
+    <div id="item-actions" class="item-actions-popover" hidden>
+      <div class="item-actions-head">
+        <span id="item-actions-title" class="item-actions-title"></span>
+        <span id="item-actions-hint" class="item-actions-hint"></span>
+      </div>
+      <div id="item-actions-list" class="item-actions-list" role="listbox"></div>
+      <div class="item-actions-search-wrap">
+        <span>⌕</span>
+        <input id="item-actions-search" class="item-actions-search" type="text" autocomplete="off" spellcheck="false" placeholder="Search for actions…">
+      </div>
+    </div>
+
     <section id="command-editor" class="command-editor" hidden>
       <aside class="command-sidebar">
         <div class="command-sidebar-head">
@@ -39,7 +48,8 @@
       <div class="command-detail">
         <div class="command-primary-row">
           <input id="command-name" class="command-name" type="text" autocomplete="off" spellcheck="false" placeholder="Command name">
-          <input id="command-hotkey" class="command-hotkey" type="text" autocomplete="off" spellcheck="false" placeholder="Press shortcut" readonly title="Click, then press a shortcut. Backspace clears it.">
+          <input id="command-match" class="command-hotkey command-match" type="text" autocomplete="off" spellcheck="false" placeholder="Input pattern (regex)" title="Optional regular expression. Matching launcher text can run this command directly.">
+          <input id="command-hotkey" class="command-hotkey" type="text" autocomplete="off" spellcheck="false" placeholder="Press shortcut" readonly title="Click, then press a shortcut. Enter accepts, Escape cancels, Backspace clears.">
         </div>
 
         <div class="command-options">
@@ -112,78 +122,5 @@
       <span><kbd>esc</kbd> back</span>
     </footer>
   </main>
-
-  <script>
-    const actionList = document.querySelector("#actions");
-    const scrollThumb = document.querySelector("#scroll-thumb");
-    let scrollFadeTimer;
-
-    function updateScrollThumb() {
-      if (actionList.hidden || actionList.scrollHeight <= actionList.clientHeight) {
-        scrollThumb.hidden = true;
-        return;
-      }
-
-      scrollThumb.hidden = false;
-      const inset = 5;
-      const trackHeight = actionList.clientHeight - inset * 2;
-      const thumbHeight = Math.max(24, trackHeight * actionList.clientHeight / actionList.scrollHeight);
-      const maxScroll = actionList.scrollHeight - actionList.clientHeight;
-      const travel = trackHeight - thumbHeight;
-      const y = maxScroll ? travel * actionList.scrollTop / maxScroll : 0;
-
-      scrollThumb.style.height = `${thumbHeight}px`;
-      scrollThumb.style.top = `${actionList.offsetTop + inset + y}px`;
-    }
-
-    function showScrollThumb() {
-      updateScrollThumb();
-      if (scrollThumb.hidden) return;
-
-      scrollThumb.classList.add("visible");
-      clearTimeout(scrollFadeTimer);
-      scrollFadeTimer = setTimeout(() => scrollThumb.classList.remove("visible"), 650);
-    }
-
-    actionList.addEventListener("scroll", showScrollThumb, { passive: true });
-    new ResizeObserver(updateScrollThumb).observe(actionList);
-    new MutationObserver(updateScrollThumb).observe(actionList, { childList: true, subtree: true });
-
-    const hyperWindow = window.__TAURI__.window.getCurrentWindow();
-    const noWindowDrag = "input, textarea, button, select, option, a, label, pre, [contenteditable='true'], .command-resizer, .drag-handle, .item-actions-popover";
-    let blurTimer;
-
-    document.addEventListener("mousedown", event => {
-      if (event.button !== 0) return;
-      const target = event.target instanceof Element ? event.target : null;
-      if (!target || target.closest(noWindowDrag)) return;
-      hyperWindow.startDragging().catch(console.error);
-    });
-
-    function scheduleBlurHide() {
-      clearTimeout(blurTimer);
-      blurTimer = setTimeout(async () => {
-        if (document.hasFocus()) return;
-
-        try {
-          if (await hyperWindow.isFocused()) return;
-        } catch {}
-
-        window.hyperactKeepVisible = false;
-        window.dispatchEvent(new Event("hyperact-blur"));
-        hyperWindow.hide();
-      }, 70);
-    }
-
-    hyperWindow.onFocusChanged(({ payload: focused }) => {
-      clearTimeout(blurTimer);
-      if (!focused) scheduleBlurHide();
-    });
-
-    window.addEventListener("blur", scheduleBlurHide);
-    document.addEventListener("visibilitychange", () => {
-      if (document.hidden) scheduleBlurHide();
-    });
-  </script>
 </body>
 </html>
