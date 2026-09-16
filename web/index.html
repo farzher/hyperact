@@ -150,6 +150,7 @@
 
     const hyperWindow = window.__TAURI__.window.getCurrentWindow();
     const noWindowDrag = "input, textarea, button, select, option, a, label, pre, [contenteditable='true'], .command-resizer, .drag-handle, .item-actions-popover";
+    let blurTimer;
 
     document.addEventListener("mousedown", event => {
       if (event.button !== 0) return;
@@ -159,10 +160,14 @@
     });
 
     hyperWindow.onFocusChanged(({ payload: focused }) => {
+      clearTimeout(blurTimer);
       if (focused) return;
-      window.hyperactKeepVisible = false;
-      window.dispatchEvent(new Event("hyperact-blur"));
-      hyperWindow.hide();
+
+      blurTimer = setTimeout(() => {
+        window.hyperactKeepVisible = false;
+        window.dispatchEvent(new Event("hyperact-blur"));
+        hyperWindow.hide();
+      }, 100);
     });
   </script>
 </body>
