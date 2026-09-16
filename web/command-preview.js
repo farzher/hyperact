@@ -11,7 +11,6 @@
   const invoke = window.__TAURI__.core.invoke;
   const hyperWindow = window.__TAURI__.window.getCurrentWindow();
   const LogicalSize = window.__TAURI__.dpi?.LogicalSize;
-  const splitKey = "hyperact.commandEditorSplit";
 
   let runTimer;
   let runVersion = 0;
@@ -56,8 +55,14 @@
   }
 
   function savedSplit() {
-    const value = Number(localStorage.getItem(splitKey));
+    const value = Number(window.hyperactConfig?.editorSplit);
     return Number.isFinite(value) && value > 0 ? value : 0.64;
+  }
+
+  function saveSplit(value) {
+    if (!window.hyperactConfig) return;
+    window.hyperactConfig.editorSplit = value;
+    window.saveHyperactConfig?.().catch(console.error);
   }
 
   function applySplit(ratio = savedSplit()) {
@@ -93,7 +98,7 @@
     dragging = false;
     workbench.classList.remove("resizing");
     const usable = Math.max(1, workbench.clientHeight - resizer.offsetHeight);
-    localStorage.setItem(splitKey, String(codePane.getBoundingClientRect().height / usable));
+    saveSplit(codePane.getBoundingClientRect().height / usable);
   }
 
   async function logicalWindowSize() {
@@ -150,7 +155,7 @@
   resizer.addEventListener("pointerup", stopResize);
   resizer.addEventListener("pointercancel", stopResize);
   resizer.addEventListener("dblclick", () => {
-    localStorage.removeItem(splitKey);
+    saveSplit(0.64);
     applySplit(0.64);
   });
   window.addEventListener("resize", () => {
