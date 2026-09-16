@@ -10,6 +10,7 @@
   <script src="command-preview.js" defer></script>
   <script src="command-ux.js" defer></script>
   <script src="item-actions.js" defer></script>
+  <script src="item-actions-polish.js" defer></script>
 </head>
 <body>
   <main class="palette">
@@ -159,15 +160,29 @@
       hyperWindow.startDragging().catch(console.error);
     });
 
-    hyperWindow.onFocusChanged(({ payload: focused }) => {
+    function scheduleBlurHide() {
       clearTimeout(blurTimer);
-      if (focused) return;
+      blurTimer = setTimeout(async () => {
+        if (document.hasFocus()) return;
 
-      blurTimer = setTimeout(() => {
+        try {
+          if (await hyperWindow.isFocused()) return;
+        } catch {}
+
         window.hyperactKeepVisible = false;
         window.dispatchEvent(new Event("hyperact-blur"));
         hyperWindow.hide();
-      }, 100);
+      }, 70);
+    }
+
+    hyperWindow.onFocusChanged(({ payload: focused }) => {
+      clearTimeout(blurTimer);
+      if (!focused) scheduleBlurHide();
+    });
+
+    window.addEventListener("blur", scheduleBlurHide);
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) scheduleBlurHide();
     });
   </script>
 </body>
